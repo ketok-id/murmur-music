@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Swift / SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+
+# Build output
+dist/
+
+# Tooling caches
+.claude/
