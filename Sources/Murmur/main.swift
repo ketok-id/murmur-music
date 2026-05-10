@@ -4,7 +4,7 @@ import WebKit
 
 // Default YouTube live stream loaded on first launch.
 // To swap: paste any video ID here, or just use the favorites menu in the widget.
-let kDefaultVideoID = "AUQKjgKQF7w"
+let kDefaultVideoID = "YmQ7jRgf4f0"
 
 // MARK: - Favorites (persisted to UserDefaults)
 struct Favorite: Codable, Identifiable, Hashable {
