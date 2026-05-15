@@ -404,6 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let controller = PlayerController()
     let favorites = FavoritesStore()
     var videoWindow: VideoWindowController!
+    let audioGraph = AudioGraph()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -413,6 +414,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // brief flash of the previous stream never shows in the visible window.
         controller.onWillLoadStream = { [weak self] in
             self?.videoWindow.flashLoadingMask()
+        }
+
+        // Start the DJ audio graph. Decks/recording attach in later tasks.
+        do {
+            try audioGraph.start()
+        } catch {
+            NSLog("AudioGraph failed to start: \(error)")
         }
 
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
