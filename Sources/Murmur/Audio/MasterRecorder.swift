@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Records the engine's `mainMixerNode` output to a 48 kHz / 16-bit stereo WAV.
+/// Records the engine's `mainMixerNode` output to a 16-bit stereo WAV at the hardware sample rate.
 ///
 /// Only one recording can be active at a time. Files land in
 /// `~/Library/Application Support/Murmur/Recordings/<timestamp>.wav`.
@@ -32,9 +32,13 @@ final class MasterRecorder {
             .replacingOccurrences(of: ":", with: "-")
         let url = Self.recordingsDirectory.appendingPathComponent("\(timestamp).wav")
 
+        let mixer = engine.mainMixerNode
+        let tapFormat = mixer.outputFormat(forBus: 0)
+
+        // Match the file's sample rate to the tap so AVAudioFile.write succeeds.
         let fileSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 48000.0,
+            AVSampleRateKey: tapFormat.sampleRate,
             AVNumberOfChannelsKey: 2,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
@@ -50,8 +54,6 @@ final class MasterRecorder {
             return nil
         }
 
-        let mixer = engine.mainMixerNode
-        let tapFormat = mixer.outputFormat(forBus: 0)
         mixer.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
             guard let self = self, let file = self.outputFile else { return }
             do {
