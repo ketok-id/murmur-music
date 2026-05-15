@@ -15,6 +15,10 @@ final class DeckController {
     private var cancellables = Set<AnyCancellable>()
     private var positionTimer: Timer?
 
+    deinit {
+        positionTimer?.invalidate()
+    }
+
     init(engine: AVAudioEngine) {
         self.player = LocalFilePlayer(engine: engine)
         self.strip = ChannelStrip(engine: engine)
@@ -38,8 +42,14 @@ final class DeckController {
             state.isPlaying = false
         } catch {
             NSLog("DeckController load error: \(error)")
+            // Stop any existing playback and clear stale state so the deck
+            // shows an empty slot rather than a contradictory half-loaded state.
+            player.pause()
             state.isLoaded = false
             state.displayName = "Load failed"
+            state.durationSeconds = 0
+            state.currentTimeSeconds = 0
+            state.isPlaying = false
         }
     }
 
@@ -63,7 +73,9 @@ final class DeckController {
     private func startPositionPolling() {
         positionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self, self.player.isLoaded else { return }
-            self.state.currentTimeSeconds = self.player.currentTimeSeconds
+            let raw = self.player.currentTimeSeconds
+            let duration = self.player.durationSeconds
+            self.state.currentTimeSeconds = max(0, min(raw, duration))
             let nowPlaying = self.player.isPlaying
             if self.state.isPlaying != nowPlaying {
                 self.state.isPlaying = nowPlaying
