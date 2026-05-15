@@ -405,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let favorites = FavoritesStore()
     var videoWindow: VideoWindowController!
     let mixer = MixerEngine()
+    var booth: BoothWindowController!
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -423,25 +424,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSLog("MixerEngine failed to start: \(error)")
         }
 
-        // ────────────────────────────────────────────────────────────────
-        // TEMPORARY (removed in Task 14): force-load two files and play
-        // both, so we can verify the audio chain audibly. Edit these
-        // paths to point at two of your own audio files.
-        let testA = URL(fileURLWithPath: NSString("~/Music/test-track-A.m4a").expandingTildeInPath)
-        let testB = URL(fileURLWithPath: NSString("~/Music/test-track-B.m4a").expandingTildeInPath)
-        if FileManager.default.fileExists(atPath: testA.path) {
-            mixer.deck1.load(url: testA)
-            mixer.deck1.togglePlay()
-        }
-        if FileManager.default.fileExists(atPath: testB.path) {
-            mixer.deck2.load(url: testB)
-            mixer.deck2.togglePlay()
-        }
-        // ────────────────────────────────────────────────────────────────
+        // Booth window — kept alive for the life of the app; hidden by default.
+        booth = BoothWindowController(mixer: mixer)
 
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 250)
+        popover.contentSize = NSSize(width: 300, height: 280)
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
@@ -450,6 +438,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 .environmentObject(controller)
                 .environmentObject(favorites)
                 .environmentObject(videoWindow)
+                .environmentObject(mixer)
+                .environmentObject(BoothLauncher(booth: booth))
         )
 
         // 3) Menu bar icon.
@@ -479,6 +469,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // Audio must keep playing when the popover (a "window") closes.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+// MARK: - Booth launcher (SwiftUI bridge)
+final class BoothLauncher: ObservableObject {
+    let booth: BoothWindowController
+    init(booth: BoothWindowController) { self.booth = booth }
+    func show() { booth.show() }
 }
 
 // MARK: - Boot

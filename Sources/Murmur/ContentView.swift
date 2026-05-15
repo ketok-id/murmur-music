@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var controller: PlayerController
     @EnvironmentObject var favorites: FavoritesStore
     @EnvironmentObject var videoWindow: VideoWindowController
+    @EnvironmentObject var booth: BoothLauncher
     @State private var urlInput: String = ""
 
     // Cozy pixel-art palette: warm cream on near-black, peach accent for active states.
@@ -29,10 +30,11 @@ struct ContentView: View {
                 dancerRow
                 controlsRow
                 statusFooter
+                boothButton
             }
             .padding(outerPad)
         }
-        .frame(width: 300, height: 250)
+        .frame(width: 300, height: 280)
     }
 
     private var dancerRow: some View {
@@ -141,6 +143,22 @@ struct ContentView: View {
             .help("Quit Murmur")
         }
         .font(.system(size: 9, design: .monospaced))
+    }
+
+    private var boothButton: some View {
+        Button(action: { booth.show() }) {
+            Text("OPEN DJ BOOTH →")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(accent)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(accent.opacity(0.7), style: dashStyle)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Menus
