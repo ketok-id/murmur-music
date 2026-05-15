@@ -457,6 +457,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    func applicationWillTerminate(_ n: Notification) {
+        audioGraph.stop()
+    }
+
     // Audio must keep playing when the popover (a "window") closes.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

@@ -12,10 +12,8 @@ final class AudioGraph {
     init() {
         engine.attach(submixA)
         engine.attach(submixB)
-        // Connect both submixers to the main mixer at the engine's default format.
-        let mainFormat = engine.mainMixerNode.outputFormat(forBus: 0)
-        engine.connect(submixA, to: engine.mainMixerNode, format: mainFormat)
-        engine.connect(submixB, to: engine.mainMixerNode, format: mainFormat)
+        engine.connect(submixA, to: engine.mainMixerNode, format: nil)
+        engine.connect(submixB, to: engine.mainMixerNode, format: nil)
     }
 
     func start() throws {
