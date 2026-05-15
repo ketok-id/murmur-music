@@ -404,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let controller = PlayerController()
     let favorites = FavoritesStore()
     var videoWindow: VideoWindowController!
-    let audioGraph = AudioGraph()
+    let mixer = MixerEngine()
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -416,12 +416,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.videoWindow.flashLoadingMask()
         }
 
-        // Start the DJ audio graph. Decks/recording attach in later tasks.
+        // Start the DJ mixer engine.
         do {
-            try audioGraph.start()
+            try mixer.start()
         } catch {
-            NSLog("AudioGraph failed to start: \(error)")
+            NSLog("MixerEngine failed to start: \(error)")
         }
+
+        // ────────────────────────────────────────────────────────────────
+        // TEMPORARY (removed in Task 14): force-load two files and play
+        // both, so we can verify the audio chain audibly. Edit these
+        // paths to point at two of your own audio files.
+        let testA = URL(fileURLWithPath: NSString("~/Music/test-track-A.m4a").expandingTildeInPath)
+        let testB = URL(fileURLWithPath: NSString("~/Music/test-track-B.m4a").expandingTildeInPath)
+        if FileManager.default.fileExists(atPath: testA.path) {
+            mixer.deck1.load(url: testA)
+            mixer.deck1.togglePlay()
+        }
+        if FileManager.default.fileExists(atPath: testB.path) {
+            mixer.deck2.load(url: testB)
+            mixer.deck2.togglePlay()
+        }
+        // ────────────────────────────────────────────────────────────────
 
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
         popover = NSPopover()
@@ -458,7 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ n: Notification) {
-        audioGraph.stop()
+        mixer.graph.stop()
     }
 
     // Audio must keep playing when the popover (a "window") closes.
