@@ -9,6 +9,9 @@ struct DeckView: View {
     var tint: Color
     var onLoad: (URL) -> Void
     var onTogglePlay: () -> Void
+    var hasMaster: Bool
+    var onSync: () -> Void
+    var onToggleMaster: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -29,6 +32,42 @@ struct DeckView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.white)
                 .lineLimit(1)
+
+            HStack {
+                if state.bpm > 0 {
+                    Text(String(format: "%.1f BPM", state.bpm))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(tint)
+                } else if state.isLoaded {
+                    Text("analyzing…")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                Spacer()
+            }
+
+            ZStack {
+                WaveformView(
+                    peaks: state.peaks,
+                    progress: state.durationSeconds > 0 ? state.currentTimeSeconds / state.durationSeconds : 0,
+                    tint: tint
+                )
+                BeatGridOverlay(
+                    bpm: state.bpm,
+                    duration: state.durationSeconds,
+                    firstBeat: $state.firstBeat,
+                    tint: tint
+                )
+            }
+            .frame(height: 50)
+
+            SyncControlsView(
+                state: state,
+                tint: tint,
+                hasMaster: hasMaster,
+                onSync: onSync,
+                onToggleMaster: onToggleMaster
+            )
 
             HStack(spacing: 8) {
                 Button(action: pickFile) {
@@ -63,6 +102,7 @@ struct DeckView: View {
                          label: "FILT", tint: .purple)
                 KnobView(value: $state.volume, range: 0...1.5, defaultValue: 1.0,
                          label: "VOL", tint: tint)
+                TempoSliderView(rate: $state.tempoRate, tint: tint)
             }
         }
         .padding(12)

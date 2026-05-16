@@ -14,7 +14,12 @@ struct BoothView: View {
                     deckNumber: 1,
                     tint: .cyan,
                     onLoad: { mixer.deck1.load(url: $0) },
-                    onTogglePlay: { mixer.deck1.togglePlay() }
+                    onTogglePlay: { mixer.deck1.togglePlay() },
+                    hasMaster: mixer.masterDeckId != nil,
+                    onSync: { mixer.sync(slave: mixer.deck1) },
+                    onToggleMaster: {
+                        mixer.setMaster(deck1State.isMaster ? nil : 1)
+                    }
                 )
                 MasterControlsView(mixer: mixer)
                     .frame(width: 110)
@@ -23,7 +28,12 @@ struct BoothView: View {
                     deckNumber: 2,
                     tint: .orange,
                     onLoad: { mixer.deck2.load(url: $0) },
-                    onTogglePlay: { mixer.deck2.togglePlay() }
+                    onTogglePlay: { mixer.deck2.togglePlay() },
+                    hasMaster: mixer.masterDeckId != nil,
+                    onSync: { mixer.sync(slave: mixer.deck2) },
+                    onToggleMaster: {
+                        mixer.setMaster(deck2State.isMaster ? nil : 2)
+                    }
                 )
             }
 
@@ -33,7 +43,7 @@ struct BoothView: View {
                 .cornerRadius(8)
         }
         .padding(14)
-        .frame(minWidth: 760, minHeight: 320)
+        .frame(minWidth: 760, minHeight: 460)
         .background(Color(white: 0.02))
     }
 }

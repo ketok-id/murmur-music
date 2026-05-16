@@ -22,7 +22,7 @@ final class BoothWindowController: NSObject, NSWindowDelegate {
         let win = NSWindow(contentViewController: host)
         win.title = "Pocket DJ"
         win.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-        win.setContentSize(NSSize(width: 820, height: 360))
+        win.setContentSize(NSSize(width: 820, height: 500))
         win.center()
         win.isReleasedWhenClosed = false
         self.window = win
