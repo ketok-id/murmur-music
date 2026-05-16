@@ -8,7 +8,7 @@ final class LocalFilePlayer: SourcePlayer {
     private let engine: AVAudioEngine
     private let player = AVAudioPlayerNode()
     private var file: AVAudioFile?
-    private var loadedURL: URL?
+    private(set) var loadedURL: URL?
 
     /// Sample-frame offset of where playback was last started in the file.
     /// Combined with `player.lastRenderTime` to compute `currentTimeSeconds`.

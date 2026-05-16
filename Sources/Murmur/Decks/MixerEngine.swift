@@ -27,6 +27,9 @@ final class MixerEngine: ObservableObject {
     @Published private(set) var isRecording: Bool = false
     @Published private(set) var lastRecordingURL: URL?
 
+    /// The deck currently designated as sync master. nil = no master.
+    @Published private(set) var masterDeckId: Int? = nil
+
     init() {
         self.deck1 = DeckController(engine: graph.engine)
         self.deck2 = DeckController(engine: graph.engine)
@@ -40,6 +43,33 @@ final class MixerEngine: ObservableObject {
 
     func start() throws {
         try graph.start()
+    }
+
+    /// Make a deck the sync master. Pass nil to clear.
+    func setMaster(_ deckId: Int?) {
+        masterDeckId = deckId
+        deck1.state.isMaster = (deckId == 1)
+        deck2.state.isMaster = (deckId == 2)
+    }
+
+    /// Sync `slave` to whichever deck is currently master.
+    ///
+    /// 1) Reads master's *effective* BPM = master.bpm * master.tempoRate
+    /// 2) Reads slave's BPM
+    /// 3) Sets slave.tempoRate so its effective BPM matches the master's
+    ///
+    /// Does nothing if either deck lacks a BPM or if `slave` IS the master.
+    func sync(slave: DeckController) {
+        guard let masterId = masterDeckId else { return }
+        let master = (masterId == 1) ? deck1 : deck2
+        if slave === master { return }
+        let masterBPM = master.state.bpm
+        let slaveBPM = slave.state.bpm
+        guard masterBPM > 0, slaveBPM > 0 else { return }
+        let masterEffective = masterBPM * Double(master.state.tempoRate)
+        let newRate = Float(masterEffective / slaveBPM)
+        // Clamp to the ±8% the slider allows so the UI stays in range.
+        slave.state.tempoRate = max(0.92, min(1.08, newRate))
     }
 
     func toggleRecording() {

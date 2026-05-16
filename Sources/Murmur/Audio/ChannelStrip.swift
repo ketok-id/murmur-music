@@ -21,6 +21,9 @@ final class ChannelStrip {
     let filterEQ: AVAudioUnitEQ
     /// Final fader for the strip. Connect this to the desired group submixer.
     let volume = AVAudioMixerNode()
+    /// Tempo + pitch control. `rate` 1.0 = normal speed, `pitch` in cents
+    /// (-2400 to +2400). Key-lock = "rate changes, pitch stays at 0".
+    let timePitch = AVAudioUnitTimePitch()
 
     /// EQ gains in dB, -24…+24 each.
     var lowGain: Float {
@@ -46,6 +49,18 @@ final class ChannelStrip {
     /// +1 = full HPF cutoff ~10kHz. Logarithmic mapping between.
     var filterPosition: Float = 0 {
         didSet { applyFilter(position: filterPosition) }
+    }
+
+    /// 1.0 = normal speed. Valid range 1/32 to 32; clamped to ±50% in practice.
+    var rate: Float {
+        get { timePitch.rate }
+        set { timePitch.rate = max(0.5, min(2.0, newValue)) }
+    }
+
+    /// Pitch shift in cents, ±2400. 0 = no shift.
+    var pitch: Float {
+        get { timePitch.pitch }
+        set { timePitch.pitch = max(-2400, min(2400, newValue)) }
     }
 
     init(engine: AVAudioEngine) {
@@ -80,18 +95,20 @@ final class ChannelStrip {
         f.bypass = true
         f.gain = 0
 
+        engine.attach(timePitch)
         engine.attach(eq3band)
         engine.attach(filterEQ)
         engine.attach(volume)
 
-        // Internal connections: eq3band → filterEQ → volume.
+        // Internal connections: timePitch → eq3band → filterEQ → volume.
+        engine.connect(timePitch, to: eq3band, format: nil)
         engine.connect(eq3band, to: filterEQ, format: nil)
         engine.connect(filterEQ, to: volume, format: nil)
     }
 
     /// Connect a source's output node into the head of this strip.
     func connectSource(_ source: SourcePlayer) {
-        engine.connect(source.outputNode, to: eq3band, format: nil)
+        engine.connect(source.outputNode, to: timePitch, format: nil)
     }
 
     private func applyFilter(position: Float) {
