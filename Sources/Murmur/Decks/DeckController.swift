@@ -58,6 +58,7 @@ final class DeckController {
             state.artist = ""
             state.album = ""
             state.artworkPath = ""
+            state.bandPeaks = []
 
             AnalysisService.shared.analyze(url: url) { [weak self] result in
                 guard let self = self, let result = result else { return }
@@ -76,6 +77,7 @@ final class DeckController {
                 self.state.artist = result.metadata.artist
                 self.state.album = result.metadata.album
                 self.state.artworkPath = result.metadata.artworkPath
+                self.state.bandPeaks = result.bandPeaks
             }
         } catch {
             NSLog("DeckController load error: \(error)")
@@ -97,6 +99,7 @@ final class DeckController {
             state.artist = ""
             state.album = ""
             state.artworkPath = ""
+            state.bandPeaks = []
         }
     }
 
