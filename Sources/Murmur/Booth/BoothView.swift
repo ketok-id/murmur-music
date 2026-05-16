@@ -43,7 +43,10 @@ struct BoothView: View {
                     onSetLoopOut: { mixer.deck1.setLoopOut() },
                     onHalveLoop: { mixer.deck1.halveLoop() },
                     onDoubleLoop: { mixer.deck1.doubleLoop() },
-                    onToggleLoop: { mixer.deck1.toggleLoop() }
+                    onToggleLoop: { mixer.deck1.toggleLoop() },
+                    onScrubBegan: { mixer.deck1.beginScrub() },
+                    onScrub: { mixer.deck1.scrub(toSeconds: $0) },
+                    onScrubEnded: { mixer.deck1.endScrub() }
                 )
                 VStack(spacing: 8) {
                     MasterControlsView(mixer: mixer)
@@ -75,7 +78,10 @@ struct BoothView: View {
                     onSetLoopOut: { mixer.deck2.setLoopOut() },
                     onHalveLoop: { mixer.deck2.halveLoop() },
                     onDoubleLoop: { mixer.deck2.doubleLoop() },
-                    onToggleLoop: { mixer.deck2.toggleLoop() }
+                    onToggleLoop: { mixer.deck2.toggleLoop() },
+                    onScrubBegan: { mixer.deck2.beginScrub() },
+                    onScrub: { mixer.deck2.scrub(toSeconds: $0) },
+                    onScrubEnded: { mixer.deck2.endScrub() }
                 )
             }
 
