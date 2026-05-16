@@ -90,6 +90,7 @@ struct DeckView: View {
             ZStack {
                 WaveformView(
                     peaks: state.peaks,
+                    bandPeaks: state.bandPeaks,
                     progress: state.durationSeconds > 0 ? state.currentTimeSeconds / state.durationSeconds : 0,
                     tint: tint
                 )

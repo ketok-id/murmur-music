@@ -72,4 +72,8 @@ final class DeckState: ObservableObject {
     @Published var album: String = ""
     /// Filename of artwork PNG in `LibraryIndex.artworkDirectory`. Empty = no art.
     @Published var artworkPath: String = ""
+
+    /// Interleaved low/mid/high band energies per peak bin, 0..1 normalized.
+    /// Empty when not yet analyzed.
+    @Published var bandPeaks: [Float] = []
 }
