@@ -4,6 +4,9 @@ struct YouTubeResultsView: View {
     let query: String
     var onPick: (YTSearchResult) -> Void
     var onBack: () -> Void
+    /// When false, the inner "YouTube · query" header bar is hidden — useful
+    /// when the parent already shows the query (e.g., the search sheet).
+    var showHeader: Bool = true
 
     @State private var results: [YTSearchResult] = []
     @State private var loading: Bool = true
@@ -13,28 +16,28 @@ struct YouTubeResultsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.6))
+            if showHeader {
+                HStack(spacing: 8) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                    Text("YouTube · \"\(query)\"")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(1)
+                    Spacer()
                 }
-                .buttonStyle(.plain)
-                Text("YouTube · \"\(query)\"")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.8))
-                    .lineLimit(1)
-                Spacer()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.04))
+                Divider().background(Color.white.opacity(0.06))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.04))
-            Divider().background(Color.white.opacity(0.06))
 
             content
         }
-        .frame(width: 280)
-        .background(Color(white: 0.06))
         .task(id: query) {
             await runSearch()
         }
@@ -72,47 +75,54 @@ struct YouTubeResultsView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(results) { result in
                         row(result)
+                        if result.id != results.last?.id {
+                            Divider().background(Color.white.opacity(0.04)).padding(.leading, 104)
+                        }
                     }
                 }
             }
-            .frame(maxHeight: 320)
         }
     }
 
     private func row(_ result: YTSearchResult) -> some View {
         Button(action: { onPick(result) }) {
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
                 AsyncImage(url: result.thumbnailURL) { phase in
                     switch phase {
                     case .empty:
-                        Rectangle().fill(Color.white.opacity(0.04))
+                        Rectangle().fill(Color.white.opacity(0.05))
                     case .success(let image):
                         image.resizable().aspectRatio(contentMode: .fill)
                     case .failure:
-                        Image(systemName: "play.rectangle")
-                            .foregroundColor(.white.opacity(0.3))
+                        ZStack {
+                            Rectangle().fill(Color.white.opacity(0.04))
+                            Image(systemName: "play.rectangle")
+                                .foregroundColor(.white.opacity(0.3))
+                        }
                     @unknown default:
                         Color.clear
                     }
                 }
-                .frame(width: 56, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
-                .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.08), lineWidth: 1))
+                .frame(width: 80, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.06), lineWidth: 0.5))
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(decodeHTMLEntities(result.title))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.92))
                         .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(result.channelTitle)
-                        .font(.system(size: 9))
-                        .foregroundColor(.cyan.opacity(0.7))
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
                         .lineLimit(1)
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

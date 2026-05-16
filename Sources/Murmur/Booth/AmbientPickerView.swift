@@ -32,6 +32,8 @@ struct AmbientPickerView: View {
                 },
                 onBack: { showingYouTube = false }
             )
+            .frame(width: 280, height: 380)
+            .background(Color(white: 0.06))
         } else {
             catalogView
         }

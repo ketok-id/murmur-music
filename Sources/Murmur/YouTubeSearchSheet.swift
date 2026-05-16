@@ -86,9 +86,10 @@ struct YouTubeSearchSheet: View {
                 },
                 onBack: {
                     activeQuery = ""
-                }
+                },
+                showHeader: false
             )
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
