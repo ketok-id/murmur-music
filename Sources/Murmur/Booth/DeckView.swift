@@ -109,6 +109,18 @@ struct DeckView: View {
             }
             .frame(height: 50)
 
+            DetailWaveformView(
+                peaks: state.peaks,
+                bandPeaks: state.bandPeaks,
+                bpm: state.bpm,
+                firstBeat: state.firstBeat,
+                duration: state.durationSeconds,
+                currentTimeSeconds: state.currentTimeSeconds,
+                tint: tint,
+                viewWindowSeconds: 10
+            )
+            .frame(height: 40)
+
             SyncControlsView(
                 state: state,
                 tint: tint,
