@@ -12,4 +12,8 @@ struct TrackMetadata: Codable, Equatable {
     var hotCues: [HotCue] = []
     var keyName: String = ""
     var camelot: String = ""
+    var title: String = ""
+    var artist: String = ""
+    var album: String = ""
+    var artworkPath: String = ""
 }

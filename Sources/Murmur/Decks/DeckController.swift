@@ -50,6 +50,10 @@ final class DeckController {
             loopEngine.disengage()
             state.keyName = ""
             state.camelot = ""
+            state.title = ""
+            state.artist = ""
+            state.album = ""
+            state.artworkPath = ""
 
             AnalysisService.shared.analyze(url: url) { [weak self] result in
                 guard let self = self, let result = result else { return }
@@ -64,6 +68,10 @@ final class DeckController {
                 self.state.hotCues = result.metadata.hotCues
                 self.state.keyName = result.metadata.keyName
                 self.state.camelot = result.metadata.camelot
+                self.state.title = result.metadata.title
+                self.state.artist = result.metadata.artist
+                self.state.album = result.metadata.album
+                self.state.artworkPath = result.metadata.artworkPath
             }
         } catch {
             NSLog("DeckController load error: \(error)")
@@ -81,6 +89,10 @@ final class DeckController {
             loopEngine.disengage()
             state.keyName = ""
             state.camelot = ""
+            state.title = ""
+            state.artist = ""
+            state.album = ""
+            state.artworkPath = ""
         }
     }
 

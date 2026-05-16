@@ -35,10 +35,22 @@ struct DeckView: View {
                 }
             }
 
-            Text(state.displayName)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white)
-                .lineLimit(1)
+            HStack(alignment: .top, spacing: 10) {
+                AlbumArtView(artworkPath: state.artworkPath, size: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    if !state.artist.isEmpty {
+                        Text(state.artist)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
 
             HStack(spacing: 12) {
                 if state.bpm > 0 {
@@ -146,6 +158,21 @@ struct DeckView: View {
         .background(Color(white: 0.06))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .cornerRadius(8)
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            guard let provider = providers.first else { return false }
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url = url else { return }
+                DispatchQueue.main.async {
+                    onLoad(url)
+                }
+            }
+            return true
+        }
+    }
+
+    private var displayTitle: String {
+        if !state.title.isEmpty { return state.title }
+        return state.displayName
     }
 
     private func pickFile() {

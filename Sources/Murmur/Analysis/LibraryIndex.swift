@@ -23,6 +23,17 @@ final class LibraryIndex {
         load()
     }
 
+    /// Where artwork PNG sidecars live.
+    static var artworkDirectory: URL {
+        let dir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first!
+            .appendingPathComponent("Murmur", isDirectory: true)
+            .appendingPathComponent("artwork", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
     /// Where peak sidecar files live.
     static var peaksDirectory: URL {
         let dir = FileManager.default

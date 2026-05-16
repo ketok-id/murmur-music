@@ -63,4 +63,13 @@ final class DeckState: ObservableObject {
     @Published var reverbEnabled: Bool = false
     /// Reverb wet/dry, 0…1.
     @Published var reverbWet: Float = 0.3
+
+    // ── Phase 5: track metadata + artwork ─────────────────────────────────
+
+    /// Track title from metadata. Falls back to filename if empty.
+    @Published var title: String = ""
+    @Published var artist: String = ""
+    @Published var album: String = ""
+    /// Filename of artwork PNG in `LibraryIndex.artworkDirectory`. Empty = no art.
+    @Published var artworkPath: String = ""
 }

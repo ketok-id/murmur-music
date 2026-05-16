@@ -68,6 +68,7 @@ final class AnalysisService {
             let bpm = try BPMDetector.detect(from: url)
             let keyResult = (try? KeyDetector.detect(from: url))
                 ?? KeyDetector.Result(keyName: "", camelot: "")
+            let meta = runMetadataExtract(url: url)
             let file = try AVAudioFile(forReading: url)
             let duration = Double(file.length) / file.processingFormat.sampleRate
 
@@ -83,19 +84,36 @@ final class AnalysisService {
                 peaksPath: peaksFilename,
                 hotCues: [],
                 keyName: keyResult.keyName,
-                camelot: keyResult.camelot
+                camelot: keyResult.camelot,
+                title: meta.title,
+                artist: meta.artist,
+                album: meta.album,
+                artworkPath: meta.artworkPath
             )
             LibraryIndex.shared.setMetadata(metadata, forPath: url.path)
 
-            NSLog("[Analysis] %@ → BPM=%.2f, key=%@ (%@), duration=%.1fs",
+            NSLog("[Analysis] %@ → BPM=%.2f, key=%@ (%@), \"%@\" by %@, duration=%.1fs",
                   url.lastPathComponent, bpm,
                   keyResult.keyName.isEmpty ? "?" : keyResult.keyName,
                   keyResult.camelot.isEmpty ? "?" : keyResult.camelot,
+                  meta.title, meta.artist.isEmpty ? "unknown" : meta.artist,
                   duration)
             return Result(url: url, metadata: metadata, peaks: peaks)
         } catch {
             NSLog("[Analysis] failed for \(url.lastPathComponent): \(error)")
             return nil
         }
+    }
+
+    /// Bridge from sync background queue to MetadataExtractor's async API.
+    private func runMetadataExtract(url: URL) -> MetadataExtractor.Result {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = MetadataExtractor.Result(title: "", artist: "", album: "", artworkPath: "")
+        Task.detached {
+            result = await MetadataExtractor.extract(from: url)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
     }
 }
