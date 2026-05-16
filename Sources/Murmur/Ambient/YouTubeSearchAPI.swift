@@ -86,6 +86,144 @@ enum YouTubeSearchAPI {
             throw SearchError.decode(error.localizedDescription)
         }
     }
+
+    /// Search YouTube for channels matching the query.
+    static func searchChannels(query: String, apiKey: String, maxResults: Int = 10) async throws -> [YTChannelResult] {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        guard !trimmedQuery.isEmpty else { return [] }
+
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/search")!
+        components.queryItems = [
+            URLQueryItem(name: "part", value: "snippet"),
+            URLQueryItem(name: "q", value: trimmedQuery),
+            URLQueryItem(name: "type", value: "channel"),
+            URLQueryItem(name: "maxResults", value: String(maxResults)),
+            URLQueryItem(name: "key", value: trimmedKey),
+        ]
+        guard let url = components.url else { throw SearchError.network("Failed to build URL") }
+
+        let (data, response) = try await safeGET(url: url)
+        try checkHTTPStatus(response: response, data: data)
+
+        do {
+            let decoded = try JSONDecoder().decode(YouTubeChannelSearchResponse.self, from: data)
+            return decoded.items.compactMap { item -> YTChannelResult? in
+                guard let channelId = item.id.channelId else { return nil }
+                let thumbURL = item.snippet.thumbnails.medium.flatMap { URL(string: $0.url) }
+                return YTChannelResult(
+                    channelId: channelId,
+                    title: item.snippet.title,
+                    thumbnailURL: thumbURL
+                )
+            }
+        } catch {
+            throw SearchError.decode(error.localizedDescription)
+        }
+    }
+
+    /// Fetch a channel's title, thumbnail, and uploadsPlaylistId.
+    static func fetchChannelDetails(channelId: String, apiKey: String) async throws -> (title: String, thumbnailURL: URL?, uploadsPlaylistId: String) {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/channels")!
+        components.queryItems = [
+            URLQueryItem(name: "part", value: "snippet,contentDetails"),
+            URLQueryItem(name: "id", value: channelId),
+            URLQueryItem(name: "key", value: trimmedKey),
+        ]
+        guard let url = components.url else { throw SearchError.network("Failed to build URL") }
+
+        let (data, response) = try await safeGET(url: url)
+        try checkHTTPStatus(response: response, data: data)
+
+        do {
+            let decoded = try JSONDecoder().decode(YouTubeChannelsListResponse.self, from: data)
+            guard let item = decoded.items.first else {
+                throw SearchError.decode("Channel not found")
+            }
+            let thumb = item.snippet.thumbnails.medium.flatMap { URL(string: $0.url) }
+            return (
+                title: item.snippet.title,
+                thumbnailURL: thumb,
+                uploadsPlaylistId: item.contentDetails.relatedPlaylists.uploads
+            )
+        } catch let err as SearchError {
+            throw err
+        } catch {
+            throw SearchError.decode(error.localizedDescription)
+        }
+    }
+
+    /// List a channel's uploads, newest first. Returns a page of ~50 results +
+    /// an optional nextPageToken for further pagination.
+    static func listChannelUploads(uploadsPlaylistId: String, apiKey: String, pageToken: String? = nil) async throws -> (videos: [YTSearchResult], nextPageToken: String?) {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        guard !uploadsPlaylistId.isEmpty else { return ([], nil) }
+
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/playlistItems")!
+        var items = [
+            URLQueryItem(name: "part", value: "snippet"),
+            URLQueryItem(name: "playlistId", value: uploadsPlaylistId),
+            URLQueryItem(name: "maxResults", value: "50"),
+            URLQueryItem(name: "key", value: trimmedKey),
+        ]
+        if let pageToken = pageToken, !pageToken.isEmpty {
+            items.append(URLQueryItem(name: "pageToken", value: pageToken))
+        }
+        components.queryItems = items
+        guard let url = components.url else { throw SearchError.network("Failed to build URL") }
+
+        let (data, response) = try await safeGET(url: url)
+        try checkHTTPStatus(response: response, data: data)
+
+        do {
+            let decoded = try JSONDecoder().decode(YouTubePlaylistItemsResponse.self, from: data)
+            let videos = decoded.items.compactMap { item -> YTSearchResult? in
+                guard let videoId = item.snippet.resourceId.videoId else { return nil }
+                let thumb = item.snippet.thumbnails.medium.flatMap { URL(string: $0.url) }
+                return YTSearchResult(
+                    videoID: videoId,
+                    title: item.snippet.title,
+                    channelTitle: item.snippet.channelTitle,
+                    thumbnailURL: thumb
+                )
+            }
+            return (videos: videos, nextPageToken: decoded.nextPageToken)
+        } catch {
+            throw SearchError.decode(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Shared HTTP helpers
+
+    private static func safeGET(url: URL) async throws -> (Data, URLResponse) {
+        do {
+            return try await URLSession.shared.data(from: url)
+        } catch {
+            throw SearchError.network(error.localizedDescription)
+        }
+    }
+
+    private static func checkHTTPStatus(response: URLResponse, data: Data) throws {
+        guard let http = response as? HTTPURLResponse else { return }
+        switch http.statusCode {
+        case 200: return
+        case 400: throw SearchError.invalidKey
+        case 403:
+            let body = String(data: data, encoding: .utf8) ?? ""
+            if body.contains("quotaExceeded") || body.contains("dailyLimitExceeded") {
+                throw SearchError.quotaExceeded
+            } else {
+                throw SearchError.invalidKey
+            }
+        default:
+            throw SearchError.network("HTTP \(http.statusCode)")
+        }
+    }
 }
 
 private struct YouTubeSearchResponse: Decodable {
@@ -108,5 +246,76 @@ private struct YouTubeSearchResponse: Decodable {
     }
     struct Thumb: Decodable {
         let url: String
+    }
+}
+
+private struct YouTubeChannelSearchResponse: Decodable {
+    let items: [Item]
+
+    struct Item: Decodable {
+        let id: IdBlock
+        let snippet: Snippet
+    }
+    struct IdBlock: Decodable {
+        let channelId: String?
+    }
+    struct Snippet: Decodable {
+        let title: String
+        let thumbnails: Thumbnails
+    }
+    struct Thumbnails: Decodable {
+        let medium: Thumb?
+    }
+    struct Thumb: Decodable {
+        let url: String
+    }
+}
+
+private struct YouTubeChannelsListResponse: Decodable {
+    let items: [Item]
+
+    struct Item: Decodable {
+        let snippet: Snippet
+        let contentDetails: ContentDetails
+    }
+    struct Snippet: Decodable {
+        let title: String
+        let thumbnails: Thumbnails
+    }
+    struct Thumbnails: Decodable {
+        let medium: Thumb?
+    }
+    struct Thumb: Decodable {
+        let url: String
+    }
+    struct ContentDetails: Decodable {
+        let relatedPlaylists: RelatedPlaylists
+    }
+    struct RelatedPlaylists: Decodable {
+        let uploads: String
+    }
+}
+
+private struct YouTubePlaylistItemsResponse: Decodable {
+    let items: [Item]
+    let nextPageToken: String?
+
+    struct Item: Decodable {
+        let snippet: Snippet
+    }
+    struct Snippet: Decodable {
+        let title: String
+        let channelTitle: String
+        let thumbnails: Thumbnails
+        let resourceId: ResourceId
+    }
+    struct Thumbnails: Decodable {
+        let medium: Thumb?
+    }
+    struct Thumb: Decodable {
+        let url: String
+    }
+    struct ResourceId: Decodable {
+        let videoId: String?
     }
 }
