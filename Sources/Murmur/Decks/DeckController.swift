@@ -48,6 +48,8 @@ final class DeckController {
             state.hotCues = []
             state.loop.clear()
             loopEngine.disengage()
+            state.keyName = ""
+            state.camelot = ""
 
             AnalysisService.shared.analyze(url: url) { [weak self] result in
                 guard let self = self, let result = result else { return }
@@ -60,6 +62,8 @@ final class DeckController {
                 self.state.firstBeat = result.metadata.firstBeat
                 self.state.peaks = result.peaks
                 self.state.hotCues = result.metadata.hotCues
+                self.state.keyName = result.metadata.keyName
+                self.state.camelot = result.metadata.camelot
             }
         } catch {
             NSLog("DeckController load error: \(error)")
@@ -75,6 +79,8 @@ final class DeckController {
             state.hotCues = []
             state.loop.clear()
             loopEngine.disengage()
+            state.keyName = ""
+            state.camelot = ""
         }
     }
 
@@ -103,6 +109,29 @@ final class DeckController {
                 // Varispeed: pitch shift = 1200 * log2(rate). Key-lock: pitch = 0.
                 self.strip.pitch = keyLock ? 0 : 1200 * log2(rate)
             }
+            .store(in: &cancellables)
+
+        // Echo: enabled, wet, divider all roll into ChannelStrip.effects.
+        state.$echoEnabled
+            .sink { [weak self] v in self?.strip.effects.echoEnabled = v }
+            .store(in: &cancellables)
+        state.$echoWet
+            .sink { [weak self] v in self?.strip.effects.echoWet = v }
+            .store(in: &cancellables)
+        // Echo divider also depends on bpm * tempoRate for beat-sync.
+        state.$echoDivider
+            .combineLatest(state.$bpm, state.$tempoRate)
+            .sink { [weak self] (divider, bpm, rate) in
+                self?.strip.effects.setEchoBeatDivider(divider, bpm: bpm * Double(rate))
+            }
+            .store(in: &cancellables)
+
+        // Reverb.
+        state.$reverbEnabled
+            .sink { [weak self] v in self?.strip.effects.reverbEnabled = v }
+            .store(in: &cancellables)
+        state.$reverbWet
+            .sink { [weak self] v in self?.strip.effects.reverbWet = v }
             .store(in: &cancellables)
 
         // Persist user-adjusted firstBeat.
