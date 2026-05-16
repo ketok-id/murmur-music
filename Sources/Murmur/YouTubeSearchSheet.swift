@@ -13,17 +13,49 @@ struct YouTubeSearchSheet: View {
     @State private var activeQuery: String = ""
     @FocusState private var searchFocused: Bool
 
+    enum Mode: String, CaseIterable, Identifiable {
+        case videos, channels
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .videos: return "Videos"
+            case .channels: return "Channels"
+            }
+        }
+    }
+
+    @State private var mode: Mode = .videos
+    @State private var browsing: ChannelFavorite? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().background(Color.white.opacity(0.08))
+            modePicker
             searchRow
             Divider().background(Color.white.opacity(0.06))
             content
         }
-        .frame(width: 420, height: 480)
+        .frame(width: 420, height: 540)
         .background(Color(white: 0.05))
         .onAppear { searchFocused = true }
+    }
+
+    private var modePicker: some View {
+        Picker("", selection: $mode) {
+            ForEach(Mode.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .onChange(of: mode) { _ in
+            activeQuery = ""
+            browsing = nil
+        }
     }
 
     private var header: some View {
@@ -47,7 +79,9 @@ struct YouTubeSearchSheet: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.5))
-            TextField("e.g. lofi study, synthwave radio, ocean waves…", text: $draftQuery)
+            TextField(mode == .videos
+                      ? "e.g. lofi study, synthwave radio, ocean waves…"
+                      : "Channel name (e.g. lofi girl)", text: $draftQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, design: .monospaced))
                 .focused($searchFocused)
@@ -75,21 +109,42 @@ struct YouTubeSearchSheet: View {
     private var content: some View {
         if !apiKeyStore.hasYouTubeKey {
             noKeyState
-        } else if activeQuery.isEmpty {
-            placeholderState
-        } else {
-            YouTubeResultsView(
-                query: activeQuery,
-                onPick: { result in
-                    onPick(result.videoID)
+        } else if let channel = browsing {
+            ChannelBrowseView(
+                channel: channel,
+                onPickVideo: { video in
+                    onPick(video.videoID)
                     dismiss()
                 },
-                onBack: {
-                    activeQuery = ""
-                },
-                showHeader: false
+                onBack: { browsing = nil }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch mode {
+            case .videos:
+                if activeQuery.isEmpty {
+                    placeholderState
+                } else {
+                    YouTubeResultsView(
+                        query: activeQuery,
+                        onPick: { result in
+                            onPick(result.videoID)
+                            dismiss()
+                        },
+                        onBack: { activeQuery = "" },
+                        showHeader: false
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            case .channels:
+                ChannelResultsView(
+                    query: activeQuery,
+                    onPick: { channel in
+                        browsing = channel
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
