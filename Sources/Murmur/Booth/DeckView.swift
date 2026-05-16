@@ -12,6 +12,13 @@ struct DeckView: View {
     var hasMaster: Bool
     var onSync: () -> Void
     var onToggleMaster: () -> Void
+    var onSetOrJumpCue: (Int) -> Void
+    var onDeleteCue: (Int) -> Void
+    var onSetLoopIn: () -> Void
+    var onSetLoopOut: () -> Void
+    var onHalveLoop: () -> Void
+    var onDoubleLoop: () -> Void
+    var onToggleLoop: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -58,6 +65,12 @@ struct DeckView: View {
                     firstBeat: $state.firstBeat,
                     tint: tint
                 )
+                CueAndLoopOverlay(
+                    hotCues: state.hotCues,
+                    loop: state.loop,
+                    duration: state.durationSeconds,
+                    loopTint: tint
+                )
             }
             .frame(height: 50)
 
@@ -67,6 +80,22 @@ struct DeckView: View {
                 hasMaster: hasMaster,
                 onSync: onSync,
                 onToggleMaster: onToggleMaster
+            )
+
+            HotCuePadsView(
+                hotCues: state.hotCues,
+                onSetOrJump: onSetOrJumpCue,
+                onDelete: onDeleteCue
+            )
+
+            LoopControlsView(
+                loop: state.loop,
+                tint: tint,
+                onSetIn: onSetLoopIn,
+                onSetOut: onSetLoopOut,
+                onHalve: onHalveLoop,
+                onDouble: onDoubleLoop,
+                onToggle: onToggleLoop
             )
 
             HStack(spacing: 8) {

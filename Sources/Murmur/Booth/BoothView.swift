@@ -19,10 +19,27 @@ struct BoothView: View {
                     onSync: { mixer.sync(slave: mixer.deck1) },
                     onToggleMaster: {
                         mixer.setMaster(deck1State.isMaster ? nil : 1)
-                    }
+                    },
+                    onSetOrJumpCue: { id in
+                        if deck1State.hotCues.contains(where: { $0.id == id }) {
+                            mixer.deck1.jumpHotCue(id: id)
+                        } else {
+                            mixer.deck1.setHotCue(id: id)
+                        }
+                    },
+                    onDeleteCue: { mixer.deck1.deleteHotCue(id: $0) },
+                    onSetLoopIn: { mixer.deck1.setLoopIn() },
+                    onSetLoopOut: { mixer.deck1.setLoopOut() },
+                    onHalveLoop: { mixer.deck1.halveLoop() },
+                    onDoubleLoop: { mixer.deck1.doubleLoop() },
+                    onToggleLoop: { mixer.deck1.toggleLoop() }
                 )
-                MasterControlsView(mixer: mixer)
-                    .frame(width: 110)
+                VStack(spacing: 8) {
+                    MasterControlsView(mixer: mixer)
+                    LivePhaseMeter(analyzer: mixer.phaseAnalyzer)
+                        .frame(height: 30)
+                }
+                .frame(width: 110)
                 DeckView(
                     state: deck2State,
                     deckNumber: 2,
@@ -33,7 +50,20 @@ struct BoothView: View {
                     onSync: { mixer.sync(slave: mixer.deck2) },
                     onToggleMaster: {
                         mixer.setMaster(deck2State.isMaster ? nil : 2)
-                    }
+                    },
+                    onSetOrJumpCue: { id in
+                        if deck2State.hotCues.contains(where: { $0.id == id }) {
+                            mixer.deck2.jumpHotCue(id: id)
+                        } else {
+                            mixer.deck2.setHotCue(id: id)
+                        }
+                    },
+                    onDeleteCue: { mixer.deck2.deleteHotCue(id: $0) },
+                    onSetLoopIn: { mixer.deck2.setLoopIn() },
+                    onSetLoopOut: { mixer.deck2.setLoopOut() },
+                    onHalveLoop: { mixer.deck2.halveLoop() },
+                    onDoubleLoop: { mixer.deck2.doubleLoop() },
+                    onToggleLoop: { mixer.deck2.toggleLoop() }
                 )
             }
 
@@ -43,7 +73,13 @@ struct BoothView: View {
                 .cornerRadius(8)
         }
         .padding(14)
-        .frame(minWidth: 1000, minHeight: 500)
+        .frame(minWidth: 1000, minHeight: 600)
         .background(Color(white: 0.02))
     }
+}
+
+/// Tiny wrapper so SwiftUI observes `PhaseAnalyzer.@Published`.
+private struct LivePhaseMeter: View {
+    @ObservedObject var analyzer: PhaseAnalyzer
+    var body: some View { PhaseMeterView(offsetBeats: analyzer.offsetBeats) }
 }
