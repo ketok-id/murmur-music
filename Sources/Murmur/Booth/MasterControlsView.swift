@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MasterControlsView: View {
     @ObservedObject var mixer: MixerEngine
+    @EnvironmentObject var recordingsLauncher: RecordingsLauncher
 
     var body: some View {
         VStack(spacing: 10) {
@@ -26,6 +27,22 @@ struct MasterControlsView: View {
                 .padding(.vertical, 6)
                 .background(mixer.isRecording ? Color.red.opacity(0.18) : Color.white.opacity(0.05))
                 .foregroundColor(mixer.isRecording ? .red : .white.opacity(0.7))
+                .cornerRadius(4)
+            }
+            .buttonStyle(.plain)
+
+            Button(action: { recordingsLauncher.show() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 9))
+                    Text("LIST")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(1)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .foregroundColor(.white.opacity(0.55))
+                .background(Color.white.opacity(0.04))
                 .cornerRadius(4)
             }
             .buttonStyle(.plain)
