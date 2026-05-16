@@ -7,7 +7,18 @@ struct BoothView: View {
     @ObservedObject var deck2State: DeckState
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 6) {
+            SceneChipsView(
+                store: mixer.scenes,
+                onRecall: { mixer.recallScene($0) },
+                onCapture: { name in _ = mixer.captureScene(named: name) }
+            )
+
+            AmbientStripView(
+                channel1: mixer.ambient.channel1,
+                channel2: mixer.ambient.channel2
+            )
+
             HStack(alignment: .top, spacing: 12) {
                 DeckView(
                     state: deck1State,
@@ -38,6 +49,7 @@ struct BoothView: View {
                     MasterControlsView(mixer: mixer)
                     LivePhaseMeter(analyzer: mixer.phaseAnalyzer)
                         .frame(height: 30)
+                    MoodDialView(mood: mixer.mood)
                 }
                 .frame(width: 110)
                 DeckView(
@@ -73,7 +85,7 @@ struct BoothView: View {
                 .cornerRadius(8)
         }
         .padding(14)
-        .frame(minWidth: 1000, minHeight: 720)
+        .frame(minWidth: 1000, minHeight: 840)
         .background(Color(white: 0.02))
     }
 }
