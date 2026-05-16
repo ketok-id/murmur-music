@@ -1,7 +1,10 @@
 import SwiftUI
 
-/// Overlays vertical beat-grid markers on top of a waveform. The first
-/// downbeat is draggable horizontally to align the grid with the audio.
+/// Overlays vertical beat-grid markers on top of a waveform.
+///
+/// Tap anywhere on the waveform to align the grid: the nearest beat snaps
+/// to the click position. The yellow line shows where the first downbeat
+/// currently sits.
 ///
 /// Bar lines (every 4 beats) render brighter than off-bar beats.
 struct BeatGridOverlay: View {
@@ -10,15 +13,15 @@ struct BeatGridOverlay: View {
     @Binding var firstBeat: Double
     var tint: Color = .cyan.opacity(0.5)
 
-    @State private var dragStartFirstBeat: Double = 0
-
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                // Beat grid lines — never interactive.
+                // Beat grid lines + downbeat indicator, drawn together in one Canvas.
                 Canvas { context, size in
                     guard bpm > 0, duration > 0 else { return }
                     let beatInterval = 60.0 / bpm
+
+                    // 1) Beat grid.
                     var beatIndex = 0
                     var t = firstBeat
                     while t < duration {
@@ -35,35 +38,30 @@ struct BeatGridOverlay: View {
                         beatIndex += 1
                         t += beatInterval
                     }
+
+                    // 2) Yellow downbeat indicator at firstBeat.
+                    let downbeatX = max(2, CGFloat(firstBeat / duration) * size.width)
+                    var marker = Path()
+                    marker.move(to: CGPoint(x: downbeatX, y: 0))
+                    marker.addLine(to: CGPoint(x: downbeatX, y: size.height))
+                    context.stroke(marker, with: .color(.yellow), lineWidth: 3)
                 }
                 .allowsHitTesting(false)
-
-                // Draggable downbeat handle. Use .offset() rather than .position()
-                // because .position() returns a parent-filling view whose hit
-                // testing interacts poorly with contentShape inside a ZStack.
-                if bpm > 0, duration > 0 {
-                    let rawHandleX = CGFloat(firstBeat / duration) * geo.size.width
-                    let handleX = max(0, min(geo.size.width - 14, rawHandleX - 7))
-                    Rectangle()
-                        .fill(Color.yellow)
-                        .frame(width: 14, height: geo.size.height + 6)
-                        .shadow(color: .yellow.opacity(0.7), radius: 3)
-                        .offset(x: handleX, y: -3)
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { drag in
-                                    if drag.translation == .zero {
-                                        dragStartFirstBeat = firstBeat
-                                    }
-                                    let dt = Double(drag.translation.width / geo.size.width) * duration
-                                    let beatInterval = 60.0 / bpm
-                                    var newFirstBeat = dragStartFirstBeat + dt
-                                    while newFirstBeat < 0 { newFirstBeat += beatInterval }
-                                    while newFirstBeat >= beatInterval { newFirstBeat -= beatInterval }
-                                    firstBeat = newFirstBeat
-                                }
-                        )
-                }
+            }
+            // The whole waveform area is the click target. Click = "set the
+            // nearest beat to here." This is far more reliable than dragging
+            // a small handle, and matches what DJs actually want to do
+            // (point at a kick, snap the grid to it).
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                guard duration > 0, bpm > 0, geo.size.width > 0 else { return }
+                let clickTime = Double(location.x / geo.size.width) * duration
+                let beatInterval = 60.0 / bpm
+                // Compute firstBeat such that the grid has a beat at clickTime.
+                var newFirstBeat = clickTime.truncatingRemainder(dividingBy: beatInterval)
+                while newFirstBeat < 0 { newFirstBeat += beatInterval }
+                while newFirstBeat >= beatInterval { newFirstBeat -= beatInterval }
+                firstBeat = newFirstBeat
             }
         }
     }
