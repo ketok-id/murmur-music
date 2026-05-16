@@ -9,6 +9,7 @@ struct YouTubeSearchSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
     @ObservedObject private var history = SearchHistoryStore.shared
+    @ObservedObject private var played = PlayedVideoHistoryStore.shared
 
     @State private var draftQuery: String = ""
     @State private var activeQuery: String = ""
@@ -166,7 +167,7 @@ struct YouTubeSearchSheet: View {
 
     @ViewBuilder
     private var placeholderState: some View {
-        if history.entries.isEmpty {
+        if history.entries.isEmpty && played.entries.isEmpty {
             VStack(spacing: 6) {
                 Image(systemName: "play.rectangle.on.rectangle")
                     .font(.system(size: 22))
@@ -177,36 +178,70 @@ struct YouTubeSearchSheet: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("RECENT")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .tracking(1.5)
-                        .foregroundColor(.white.opacity(0.4))
-                    Spacer()
-                    Button("Clear") { history.clear() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
-
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(history.entries) { entry in
-                            historyRow(entry)
-                            if entry.id != history.entries.last?.id {
-                                Divider()
-                                    .background(Color.white.opacity(0.04))
-                                    .padding(.leading, 38)
-                            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !played.entries.isEmpty && mode == .videos {
+                        recentVideosSection
+                    }
+                    if !history.entries.isEmpty {
+                        if !played.entries.isEmpty && mode == .videos {
+                            Divider().background(Color.white.opacity(0.04))
                         }
+                        recentSearchesSection
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    @ViewBuilder
+    private var recentVideosSection: some View {
+        HStack {
+            Text("RECENT VIDEOS")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.4))
+            Spacer()
+            Button("Clear") { played.clear() }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.4))
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+
+        ForEach(played.entries.prefix(10)) { entry in
+            playedRow(entry)
+            if entry.id != played.entries.prefix(10).last?.id {
+                Divider().background(Color.white.opacity(0.04)).padding(.leading, 104)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recentSearchesSection: some View {
+        HStack {
+            Text("RECENT SEARCHES")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.4))
+            Spacer()
+            Button("Clear") { history.clear() }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(.white.opacity(0.4))
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+
+        ForEach(history.entries) { entry in
+            historyRow(entry)
+            if entry.id != history.entries.last?.id {
+                Divider().background(Color.white.opacity(0.04)).padding(.leading, 38)
+            }
         }
     }
 
@@ -238,6 +273,44 @@ struct YouTubeSearchSheet: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
+    }
+
+    private func playedRow(_ entry: PlayedVideoEntry) -> some View {
+        HStack(spacing: 10) {
+            Button(action: { onPick(entry.videoID); dismiss() }) {
+                HStack(spacing: 12) {
+                    AsyncImage(url: entry.thumbnailURL) { phase in
+                        switch phase {
+                        case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
+                        default: Rectangle().fill(Color.white.opacity(0.05))
+                        }
+                    }
+                    .frame(width: 80, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.06), lineWidth: 0.5))
+
+                    Text(entry.title.isEmpty ? entry.videoID : entry.title)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: { played.remove(videoID: entry.videoID) }) {
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+            .help("Remove from history")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     private func reenter(_ entry: SearchHistoryEntry) {
