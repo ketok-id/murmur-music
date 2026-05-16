@@ -66,6 +66,8 @@ final class AnalysisService {
         do {
             let peaks = try PeakExtractor.extract(from: url)
             let bpm = try BPMDetector.detect(from: url)
+            let keyResult = (try? KeyDetector.detect(from: url))
+                ?? KeyDetector.Result(keyName: "", camelot: "")
             let file = try AVAudioFile(forReading: url)
             let duration = Double(file.length) / file.processingFormat.sampleRate
 
@@ -74,10 +76,22 @@ final class AnalysisService {
             let peaksURL = LibraryIndex.peaksDirectory.appendingPathComponent(peaksFilename)
             try PeakExtractor.writePeaks(peaks, to: peaksURL)
 
-            let metadata = TrackMetadata(bpm: bpm, duration: duration, firstBeat: 0, peaksPath: peaksFilename)
+            let metadata = TrackMetadata(
+                bpm: bpm,
+                duration: duration,
+                firstBeat: 0,
+                peaksPath: peaksFilename,
+                hotCues: [],
+                keyName: keyResult.keyName,
+                camelot: keyResult.camelot
+            )
             LibraryIndex.shared.setMetadata(metadata, forPath: url.path)
 
-            NSLog("[Analysis] %@ → BPM=%.2f, duration=%.1fs", url.lastPathComponent, bpm, duration)
+            NSLog("[Analysis] %@ → BPM=%.2f, key=%@ (%@), duration=%.1fs",
+                  url.lastPathComponent, bpm,
+                  keyResult.keyName.isEmpty ? "?" : keyResult.keyName,
+                  keyResult.camelot.isEmpty ? "?" : keyResult.camelot,
+                  duration)
             return Result(url: url, metadata: metadata, peaks: peaks)
         } catch {
             NSLog("[Analysis] failed for \(url.lastPathComponent): \(error)")
