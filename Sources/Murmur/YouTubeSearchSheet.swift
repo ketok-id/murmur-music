@@ -182,6 +182,11 @@ struct YouTubeSearchSheet: View {
 
     private func activate() {
         guard canSearch else { return }
-        activeQuery = draftQuery.trimmingCharacters(in: .whitespaces)
+        let trimmed = draftQuery.trimmingCharacters(in: .whitespaces)
+        activeQuery = trimmed
+        SearchHistoryStore.shared.record(
+            query: trimmed,
+            mode: mode == .videos ? .videos : .channels
+        )
     }
 }
