@@ -40,7 +40,7 @@ struct DeckView: View {
                 .foregroundColor(.white)
                 .lineLimit(1)
 
-            HStack {
+            HStack(spacing: 12) {
                 if state.bpm > 0 {
                     Text(String(format: "%.1f BPM", state.bpm))
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -49,6 +49,11 @@ struct DeckView: View {
                     Text("analyzing…")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.white.opacity(0.4))
+                }
+                if !state.keyName.isEmpty {
+                    Text("\(state.keyName)  ·  \(state.camelot)")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.yellow.opacity(0.85))
                 }
                 Spacer()
             }
@@ -97,6 +102,8 @@ struct DeckView: View {
                 onDouble: onDoubleLoop,
                 onToggle: onToggleLoop
             )
+
+            FXControlsView(state: state, tint: tint)
 
             HStack(spacing: 8) {
                 Button(action: pickFile) {
