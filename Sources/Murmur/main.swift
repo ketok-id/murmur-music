@@ -404,6 +404,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let controller = PlayerController()
     let favorites = FavoritesStore()
     var videoWindow: VideoWindowController!
+    let mixer = MixerEngine()
+    var booth: BoothWindowController!
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -415,9 +417,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.videoWindow.flashLoadingMask()
         }
 
+        // Start the DJ mixer engine.
+        do {
+            try mixer.start()
+        } catch {
+            NSLog("MixerEngine failed to start: \(error)")
+        }
+
+        // Booth window — kept alive for the life of the app; hidden by default.
+        booth = BoothWindowController(mixer: mixer)
+
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 250)
+        popover.contentSize = NSSize(width: 300, height: 280)
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
@@ -426,6 +438,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 .environmentObject(controller)
                 .environmentObject(favorites)
                 .environmentObject(videoWindow)
+                .environmentObject(mixer)
+                .environmentObject(BoothLauncher(booth: booth))
         )
 
         // 3) Menu bar icon.
@@ -449,8 +463,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    func applicationWillTerminate(_ n: Notification) {
+        mixer.graph.stop()
+    }
+
     // Audio must keep playing when the popover (a "window") closes.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+// MARK: - Booth launcher (SwiftUI bridge)
+final class BoothLauncher: ObservableObject {
+    let booth: BoothWindowController
+    init(booth: BoothWindowController) { self.booth = booth }
+    func show() { booth.show() }
 }
 
 // MARK: - Boot
