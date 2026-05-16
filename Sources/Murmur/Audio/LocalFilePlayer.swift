@@ -6,8 +6,8 @@ import AVFoundation
 /// to the engine in `init`; it stays attached for the lifetime of the player.
 final class LocalFilePlayer: SourcePlayer {
     private let engine: AVAudioEngine
-    private let player = AVAudioPlayerNode()
-    private var file: AVAudioFile?
+    private(set) var player = AVAudioPlayerNode()
+    private(set) var file: AVAudioFile?
     private(set) var loadedURL: URL?
 
     /// Sample-frame offset of where playback was last started in the file.

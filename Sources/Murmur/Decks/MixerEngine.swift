@@ -29,6 +29,7 @@ final class MixerEngine: ObservableObject {
 
     /// The deck currently designated as sync master. nil = no master.
     @Published private(set) var masterDeckId: Int? = nil
+    let phaseAnalyzer = PhaseAnalyzer()
 
     init() {
         self.deck1 = DeckController(engine: graph.engine)
@@ -39,6 +40,10 @@ final class MixerEngine: ObservableObject {
         // Route deck1 → A submix, deck2 → B submix.
         deck1.connect(to: graph.submixA, in: graph.engine)
         deck2.connect(to: graph.submixB, in: graph.engine)
+
+        phaseAnalyzer.attach(deck1: deck1, deck2: deck2) { [weak self] in
+            self?.masterDeckId
+        }
     }
 
     func start() throws {

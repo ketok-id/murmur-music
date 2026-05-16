@@ -11,6 +11,7 @@ final class DeckController {
     let state = DeckState()
     let strip: ChannelStrip
     let player: LocalFilePlayer
+    let loopEngine = LoopEngine()
 
     private var cancellables = Set<AnyCancellable>()
     private var positionTimer: Timer?
@@ -44,6 +45,9 @@ final class DeckController {
             state.bpm = 0
             state.firstBeat = 0
             state.peaks = []
+            state.hotCues = []
+            state.loop.clear()
+            loopEngine.disengage()
 
             AnalysisService.shared.analyze(url: url) { [weak self] result in
                 guard let self = self, let result = result else { return }
@@ -55,6 +59,7 @@ final class DeckController {
                 self.state.bpm = result.metadata.bpm
                 self.state.firstBeat = result.metadata.firstBeat
                 self.state.peaks = result.peaks
+                self.state.hotCues = result.metadata.hotCues
             }
         } catch {
             NSLog("DeckController load error: \(error)")
@@ -67,6 +72,9 @@ final class DeckController {
             state.bpm = 0
             state.firstBeat = 0
             state.peaks = []
+            state.hotCues = []
+            state.loop.clear()
+            loopEngine.disengage()
         }
     }
 
@@ -118,5 +126,106 @@ final class DeckController {
                 self.state.isPlaying = nowPlaying
             }
         }
+    }
+
+    // MARK: - Hot cues
+
+    /// Set the hot cue at pad index `id` to the current playhead position.
+    func setHotCue(id: Int) {
+        guard state.isLoaded else { return }
+        let seconds = state.currentTimeSeconds
+        var cues = state.hotCues
+        let cue = HotCue(id: id, seconds: seconds, colorHex: HotCue.defaultColor(for: id))
+        if let idx = cues.firstIndex(where: { $0.id == id }) {
+            cues[idx] = cue
+        } else {
+            cues.append(cue)
+            cues.sort { $0.id < $1.id }
+        }
+        state.hotCues = cues
+        if let url = player.loadedURL {
+            LibraryIndex.shared.setHotCues(cues, forPath: url.path)
+        }
+    }
+
+    /// Jump playback to the cue at pad index `id`. No-op if the cue isn't set.
+    func jumpHotCue(id: Int) {
+        guard let cue = state.hotCues.first(where: { $0.id == id }) else { return }
+        if loopEngine.isEngaged {
+            state.loop.isActive = false
+            loopEngine.disengage()
+        }
+        player.seek(toSeconds: cue.seconds)
+    }
+
+    /// Remove the cue at pad index `id`.
+    func deleteHotCue(id: Int) {
+        var cues = state.hotCues
+        cues.removeAll { $0.id == id }
+        state.hotCues = cues
+        if let url = player.loadedURL {
+            LibraryIndex.shared.setHotCues(cues, forPath: url.path)
+        }
+    }
+
+    // MARK: - Loops
+
+    /// Set the loop IN point at the current playhead, snapped to the nearest beat.
+    func setLoopIn() {
+        let t = beatSnap(state.currentTimeSeconds)
+        state.loop.inSeconds = t
+    }
+
+    /// Set the loop OUT point at the current playhead, snapped to the nearest beat,
+    /// and engage the loop.
+    func setLoopOut() {
+        let t = beatSnap(state.currentTimeSeconds)
+        guard let inT = state.loop.inSeconds, t > inT else { return }
+        state.loop.outSeconds = t
+        engageLoopIfReady()
+    }
+
+    /// Halve the loop length (move OUT to half-distance from IN).
+    func halveLoop() {
+        guard let inT = state.loop.inSeconds, let outT = state.loop.outSeconds else { return }
+        let length = outT - inT
+        state.loop.outSeconds = inT + length / 2
+        engageLoopIfReady()
+    }
+
+    /// Double the loop length (move OUT to twice-distance from IN).
+    func doubleLoop() {
+        guard let inT = state.loop.inSeconds, let outT = state.loop.outSeconds else { return }
+        let length = outT - inT
+        state.loop.outSeconds = inT + length * 2
+        engageLoopIfReady()
+    }
+
+    /// Toggle loop on/off.
+    func toggleLoop() {
+        if state.loop.isActive {
+            state.loop.isActive = false
+            loopEngine.disengage()
+        } else {
+            engageLoopIfReady()
+        }
+    }
+
+    private func engageLoopIfReady() {
+        guard let inT = state.loop.inSeconds,
+              let outT = state.loop.outSeconds,
+              let file = player.file,
+              outT > inT else { return }
+        state.loop.isActive = true
+        loopEngine.engage(player: player.player, file: file, inSeconds: inT, outSeconds: outT)
+    }
+
+    private func beatSnap(_ t: Double) -> Double {
+        guard state.bpm > 0 else { return t }
+        let beatInterval = 60.0 / state.bpm
+        let firstBeat = state.firstBeat
+        let offsetFromFirst = t - firstBeat
+        let beatsFromFirst = (offsetFromFirst / beatInterval).rounded()
+        return firstBeat + beatsFromFirst * beatInterval
     }
 }

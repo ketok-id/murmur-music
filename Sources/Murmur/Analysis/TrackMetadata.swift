@@ -9,4 +9,5 @@ struct TrackMetadata: Codable, Equatable {
     var firstBeat: Double
     /// Filename (not full path) of the peaks sidecar inside the peaks directory.
     let peaksPath: String
+    var hotCues: [HotCue] = []
 }
