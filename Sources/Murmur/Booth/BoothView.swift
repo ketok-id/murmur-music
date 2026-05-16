@@ -43,7 +43,7 @@ struct BoothView: View {
                 .cornerRadius(8)
         }
         .padding(14)
-        .frame(minWidth: 760, minHeight: 460)
+        .frame(minWidth: 1000, minHeight: 500)
         .background(Color(white: 0.02))
     }
 }

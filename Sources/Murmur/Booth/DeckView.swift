@@ -91,17 +91,17 @@ struct DeckView: View {
                 Spacer()
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 KnobView(value: $state.highGain, range: -24...24, defaultValue: 0,
-                         label: "HI", tint: tint)
+                         label: "HI", tint: tint, diameter: 36)
                 KnobView(value: $state.midGain, range: -24...24, defaultValue: 0,
-                         label: "MID", tint: tint)
+                         label: "MID", tint: tint, diameter: 36)
                 KnobView(value: $state.lowGain, range: -24...24, defaultValue: 0,
-                         label: "LO", tint: tint)
+                         label: "LO", tint: tint, diameter: 36)
                 KnobView(value: $state.filter, range: -1...1, defaultValue: 0,
-                         label: "FILT", tint: .purple)
+                         label: "FILT", tint: .purple, diameter: 36)
                 KnobView(value: $state.volume, range: 0...1.5, defaultValue: 1.0,
-                         label: "VOL", tint: tint)
+                         label: "VOL", tint: tint, diameter: 36)
                 TempoSliderView(rate: $state.tempoRate, tint: tint)
             }
         }
