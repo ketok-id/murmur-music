@@ -8,6 +8,7 @@ struct YouTubeSearchSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
+    @ObservedObject private var history = SearchHistoryStore.shared
 
     @State private var draftQuery: String = ""
     @State private var activeQuery: String = ""
@@ -163,16 +164,87 @@ struct YouTubeSearchSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
     private var placeholderState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "play.rectangle.on.rectangle")
-                .font(.system(size: 22))
-                .foregroundColor(.white.opacity(0.25))
-            Text("Type a query and press Return.")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.45))
+        if history.entries.isEmpty {
+            VStack(spacing: 6) {
+                Image(systemName: "play.rectangle.on.rectangle")
+                    .font(.system(size: 22))
+                    .foregroundColor(.white.opacity(0.25))
+                Text("Type a query and press Return.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.45))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("RECENT")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .tracking(1.5)
+                        .foregroundColor(.white.opacity(0.4))
+                    Spacer()
+                    Button("Clear") { history.clear() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(history.entries) { entry in
+                            historyRow(entry)
+                            if entry.id != history.entries.last?.id {
+                                Divider()
+                                    .background(Color.white.opacity(0.04))
+                                    .padding(.leading, 38)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func historyRow(_ entry: SearchHistoryEntry) -> some View {
+        HStack(spacing: 10) {
+            Button(action: { reenter(entry) }) {
+                HStack(spacing: 10) {
+                    Image(systemName: entry.mode == .videos ? "play.rectangle" : "person.crop.circle")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: 18)
+                    Text(entry.query)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: { history.remove(id: entry.id) }) {
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+            .help("Remove from history")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+    }
+
+    private func reenter(_ entry: SearchHistoryEntry) {
+        mode = (entry.mode == .videos) ? .videos : .channels
+        draftQuery = entry.query
+        activeQuery = entry.query
+        history.record(query: entry.query, mode: entry.mode)
     }
 
     private var canSearch: Bool {
