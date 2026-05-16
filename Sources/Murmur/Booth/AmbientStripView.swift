@@ -23,16 +23,19 @@ struct AmbientStripView: View {
     }
 
     private func channelControls(state: AmbientChannelState, label: String) -> some View {
+        ChannelControlRow(state: state)
+    }
+}
+
+/// Inner row for one ambient channel. Lives at file scope so its `@State`
+/// (for the popover binding) is per-channel.
+private struct ChannelControlRow: View {
+    @ObservedObject var state: AmbientChannelState
+    @State private var pickerOpen = false
+
+    var body: some View {
         HStack(spacing: 8) {
-            Menu {
-                Button("— Off —") { state.source = nil }
-                Divider()
-                ForEach(AmbientSource.catalog) { src in
-                    Button("\(src.kindLabel) · \(src.name)") {
-                        state.source = src
-                    }
-                }
-            } label: {
+            Button(action: { pickerOpen.toggle() }) {
                 HStack(spacing: 4) {
                     Circle()
                         .fill(state.source != nil ? Color.cyan : Color.white.opacity(0.15))
@@ -41,10 +44,18 @@ struct AmbientStripView: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(state.source != nil ? .white : .white.opacity(0.4))
                         .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundColor(.white.opacity(0.4))
                 }
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .buttonStyle(.plain)
+            .popover(isPresented: $pickerOpen, arrowEdge: .bottom) {
+                AmbientPickerView { picked in
+                    state.source = picked
+                    pickerOpen = false
+                }
+            }
 
             Button(action: { state.muted.toggle() }) {
                 Image(systemName: state.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
