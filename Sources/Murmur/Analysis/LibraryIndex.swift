@@ -55,6 +55,16 @@ final class LibraryIndex {
         }
     }
 
+    /// Update only the hotCues array for a track.
+    func setHotCues(_ hotCues: [HotCue], forPath path: String) {
+        queue.sync {
+            guard var existing = tracks[path] else { return }
+            existing.hotCues = hotCues
+            tracks[path] = existing
+            save()
+        }
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([String: TrackMetadata].self, from: data) else {
