@@ -33,7 +33,6 @@ struct ContentView: View {
                 dancerRow
                 controlsRow
                 statusFooter
-                boothButton
             }
             .padding(outerPad)
         }
