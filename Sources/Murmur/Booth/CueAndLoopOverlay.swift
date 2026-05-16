@@ -14,9 +14,6 @@ struct CueAndLoopOverlay: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                // Sentinel layer ensures GeometryReader's full frame opts out of hit-testing
-                // so clicks pass through to the BeatGridOverlay's draggable handle underneath.
-                Color.clear.frame(width: geo.size.width, height: geo.size.height)
                 if let inT = loop.inSeconds, let outT = loop.outSeconds, duration > 0 {
                     let x1 = CGFloat(inT / duration) * geo.size.width
                     let x2 = CGFloat(outT / duration) * geo.size.width
@@ -44,7 +41,7 @@ struct CueAndLoopOverlay: View {
                     }
                 }
             }
-            .allowsHitTesting(false)
         }
+        .allowsHitTesting(false)
     }
 }
