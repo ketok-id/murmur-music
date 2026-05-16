@@ -24,6 +24,8 @@ final class ChannelStrip {
     /// Tempo + pitch control. `rate` 1.0 = normal speed, `pitch` in cents
     /// (-2400 to +2400). Key-lock = "rate changes, pitch stays at 0".
     let timePitch = AVAudioUnitTimePitch()
+    /// FX bus inserted between the filter and the volume fader.
+    let effects: EffectsChain
 
     /// EQ gains in dB, -24…+24 each.
     var lowGain: Float {
@@ -100,10 +102,14 @@ final class ChannelStrip {
         engine.attach(filterEQ)
         engine.attach(volume)
 
-        // Internal connections: timePitch → eq3band → filterEQ → volume.
+        // Construct effects chain (attaches its own nodes).
+        effects = EffectsChain(engine: engine)
+
+        // Internal connections: timePitch → eq3band → filterEQ → effects → volume.
         engine.connect(timePitch, to: eq3band, format: nil)
         engine.connect(eq3band, to: filterEQ, format: nil)
-        engine.connect(filterEQ, to: volume, format: nil)
+        engine.connect(filterEQ, to: effects.input, format: nil)
+        engine.connect(effects.output, to: volume, format: nil)
     }
 
     /// Connect a source's output node into the head of this strip.
