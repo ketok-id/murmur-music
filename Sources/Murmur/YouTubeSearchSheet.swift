@@ -167,31 +167,54 @@ struct YouTubeSearchSheet: View {
 
     @ViewBuilder
     private var placeholderState: some View {
-        if history.entries.isEmpty && played.entries.isEmpty {
-            VStack(spacing: 6) {
-                Image(systemName: "play.rectangle.on.rectangle")
-                    .font(.system(size: 22))
-                    .foregroundColor(.white.opacity(0.25))
-                Text("Type a query and press Return.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.45))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if !played.entries.isEmpty && mode == .videos {
-                        recentVideosSection
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if mode == .videos {
+                    discoverSection
+                }
+                if !played.entries.isEmpty && mode == .videos {
+                    Divider().background(Color.white.opacity(0.04))
+                    recentVideosSection
+                }
+                if !history.entries.isEmpty {
+                    Divider().background(Color.white.opacity(0.04))
+                    recentSearchesSection
+                }
+                if mode == .channels && history.entries.isEmpty && played.entries.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "person.crop.circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(.white.opacity(0.25))
+                        Text("Type a channel name, paste a URL, or @handle.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.45))
                     }
-                    if !history.entries.isEmpty {
-                        if !played.entries.isEmpty && mode == .videos {
-                            Divider().background(Color.white.opacity(0.04))
-                        }
-                        recentSearchesSection
-                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var discoverSection: some View {
+        HStack {
+            Text("DISCOVER")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.4))
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+
+        DiscoverPanel { topic in
+            mode = .videos
+            draftQuery = topic.query
+            activeQuery = topic.query
+            SearchHistoryStore.shared.record(query: topic.query, mode: .videos)
         }
     }
 
