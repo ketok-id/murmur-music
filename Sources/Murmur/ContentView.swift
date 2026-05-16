@@ -8,6 +8,7 @@ struct ContentView: View {
     @EnvironmentObject var booth: BoothLauncher
     @State private var urlInput: String = ""
     @State private var showingAPIKeySheet: Bool = false
+    @State private var showingYouTubeSearch: Bool = false
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
 
     // Cozy pixel-art palette: warm cream on near-black, peach accent for active states.
@@ -107,6 +108,13 @@ struct ContentView: View {
             .fixedSize()
             .help("Favorites & discover")
 
+            Button(action: { showingYouTubeSearch = true }) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(fgDim)
+            }
+            .buttonStyle(.plain)
+            .help("Search YouTube")
+
             Button(action: submitURL) {
                 Text("Go")
                     .foregroundColor(canSubmit ? accent : fgDim)
@@ -118,6 +126,11 @@ struct ContentView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .overlay(Rectangle().stroke(border, style: dashStyle))
+        .sheet(isPresented: $showingYouTubeSearch) {
+            YouTubeSearchSheet { videoID in
+                _ = controller.load(input: videoID)
+            }
+        }
     }
 
     private var controlsRow: some View {
