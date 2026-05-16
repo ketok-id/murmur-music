@@ -37,4 +37,11 @@ final class DeckState: ObservableObject {
     @Published var keyLock: Bool = true
     /// True when this deck is the sync master.
     @Published var isMaster: Bool = false
+
+    // ── Phase 2b: performance controls ────────────────────────────────────
+
+    /// Hot cues for the currently loaded track.
+    @Published var hotCues: [HotCue] = []
+    /// Observable loop state.
+    let loop = LoopState()
 }
