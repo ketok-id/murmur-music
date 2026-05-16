@@ -13,6 +13,10 @@ final class DeckController {
     let player: LocalFilePlayer
     let loopEngine = LoopEngine()
 
+    /// True while a scrub gesture is in progress. Suppresses play-state mirror.
+    private(set) var isScrubbing: Bool = false
+    private var wasPlayingBeforeScrub: Bool = false
+
     private var cancellables = Set<AnyCancellable>()
     private var positionTimer: Timer?
 
@@ -268,5 +272,35 @@ final class DeckController {
         let offsetFromFirst = t - firstBeat
         let beatsFromFirst = (offsetFromFirst / beatInterval).rounded()
         return firstBeat + beatsFromFirst * beatInterval
+    }
+
+    // MARK: - Scrub (jog wheel)
+
+    /// Begin a scrub gesture. Pauses playback and remembers whether to resume.
+    func beginScrub() {
+        guard state.isLoaded else { return }
+        wasPlayingBeforeScrub = player.isPlaying
+        if player.isPlaying { player.pause() }
+        isScrubbing = true
+        state.isPlaying = false
+    }
+
+    /// Seek to a target time during an active scrub. Does not auto-resume —
+    /// `endScrub()` does that.
+    func scrub(toSeconds seconds: Double) {
+        guard isScrubbing, state.isLoaded else { return }
+        let clamped = max(0, min(state.durationSeconds, seconds))
+        player.seek(toSeconds: clamped)
+        state.currentTimeSeconds = clamped
+    }
+
+    /// End the scrub. Restores playback state from before the scrub began.
+    func endScrub() {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        if wasPlayingBeforeScrub {
+            player.play()
+            state.isPlaying = true
+        }
     }
 }

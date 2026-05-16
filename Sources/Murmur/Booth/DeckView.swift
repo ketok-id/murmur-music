@@ -19,6 +19,9 @@ struct DeckView: View {
     var onHalveLoop: () -> Void
     var onDoubleLoop: () -> Void
     var onToggleLoop: () -> Void
+    var onScrubBegan: () -> Void
+    var onScrub: (Double) -> Void
+    var onScrubEnded: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -36,7 +39,14 @@ struct DeckView: View {
             }
 
             HStack(alignment: .center, spacing: 14) {
-                JogWheelView(state: state, tint: tint, size: 96)
+                JogWheelView(
+                    state: state,
+                    tint: tint,
+                    size: 96,
+                    onScrubBegan: onScrubBegan,
+                    onScrub: onScrub,
+                    onScrubEnded: onScrubEnded
+                )
                 VStack(alignment: .leading, spacing: 4) {
                     Text(displayTitle)
                         .font(.system(size: 14, weight: .semibold))

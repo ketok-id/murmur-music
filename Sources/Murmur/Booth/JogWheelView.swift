@@ -10,6 +10,18 @@ struct JogWheelView: View {
     @ObservedObject var state: DeckState
     var tint: Color = .cyan
     var size: CGFloat = 100
+    /// Called once when the user starts dragging the wheel.
+    var onScrubBegan: () -> Void = {}
+    /// Called continuously with the target playhead time during drag.
+    var onScrub: (Double) -> Void = { _ in }
+    /// Called once when the drag ends.
+    var onScrubEnded: () -> Void = {}
+
+    /// Pixels of horizontal drag = `scrubPixelsPerSecond` seconds of audio.
+    private let scrubPixelsPerSecond: CGFloat = 24
+
+    @State private var dragStartSeconds: Double = 0
+    @State private var dragActive: Bool = false
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
@@ -59,6 +71,25 @@ struct JogWheelView: View {
             .frame(width: size, height: size)
             .rotation3DEffect(.degrees(18), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
             .shadow(color: .black.opacity(0.6), radius: 10, x: 0, y: 4)
+            .scaleEffect(dragActive ? 0.97 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: dragActive)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { drag in
+                        if !dragActive {
+                            dragActive = true
+                            dragStartSeconds = state.currentTimeSeconds
+                            onScrubBegan()
+                        }
+                        let dtSeconds = Double(drag.translation.width / scrubPixelsPerSecond)
+                        onScrub(dragStartSeconds + dtSeconds)
+                    }
+                    .onEnded { _ in
+                        dragActive = false
+                        onScrubEnded()
+                    }
+            )
         }
     }
 
