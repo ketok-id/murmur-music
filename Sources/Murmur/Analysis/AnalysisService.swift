@@ -18,6 +18,7 @@ final class AnalysisService {
         let url: URL
         let metadata: TrackMetadata
         let peaks: [Float]
+        let bandPeaks: [Float]
     }
 
     private let queue = DispatchQueue(label: "murmur.analysis", qos: .userInitiated)
@@ -34,8 +35,15 @@ final class AnalysisService {
             let peaksURL = LibraryIndex.peaksDirectory.appendingPathComponent(cached.peaksPath)
             if FileManager.default.fileExists(atPath: peaksURL.path),
                let peaks = try? PeakExtractor.readPeaks(from: peaksURL) {
+                var bandPeaks: [Float] = []
+                if !cached.bandPeaksPath.isEmpty {
+                    let bandURL = LibraryIndex.peaksDirectory.appendingPathComponent(cached.bandPeaksPath)
+                    if FileManager.default.fileExists(atPath: bandURL.path) {
+                        bandPeaks = (try? BandExtractor.readBands(from: bandURL)) ?? []
+                    }
+                }
                 resultQueue.async {
-                    completion(Result(url: url, metadata: cached, peaks: peaks))
+                    completion(Result(url: url, metadata: cached, peaks: peaks, bandPeaks: bandPeaks))
                 }
                 return
             }
@@ -65,6 +73,7 @@ final class AnalysisService {
     private func runAnalysis(url: URL) -> Result? {
         do {
             let peaks = try PeakExtractor.extract(from: url)
+            let bands = (try? BandExtractor.extract(from: url)) ?? []
             let bpm = try BPMDetector.detect(from: url)
             let keyResult = (try? KeyDetector.detect(from: url))
                 ?? KeyDetector.Result(keyName: "", camelot: "")
@@ -72,10 +81,16 @@ final class AnalysisService {
             let file = try AVAudioFile(forReading: url)
             let duration = Double(file.length) / file.processingFormat.sampleRate
 
-            let peaksFilename = url.deletingPathExtension().lastPathComponent + "-" +
-                String(url.path.hashValue, radix: 16) + ".peaks"
+            let baseName = url.deletingPathExtension().lastPathComponent + "-" +
+                String(url.path.hashValue, radix: 16)
+            let peaksFilename = baseName + ".peaks"
+            let bandsFilename = baseName + ".bands"
             let peaksURL = LibraryIndex.peaksDirectory.appendingPathComponent(peaksFilename)
+            let bandsURL = LibraryIndex.peaksDirectory.appendingPathComponent(bandsFilename)
             try PeakExtractor.writePeaks(peaks, to: peaksURL)
+            if !bands.isEmpty {
+                try? BandExtractor.writeBands(bands, to: bandsURL)
+            }
 
             let metadata = TrackMetadata(
                 bpm: bpm,
@@ -88,17 +103,18 @@ final class AnalysisService {
                 title: meta.title,
                 artist: meta.artist,
                 album: meta.album,
-                artworkPath: meta.artworkPath
+                artworkPath: meta.artworkPath,
+                bandPeaksPath: bands.isEmpty ? "" : bandsFilename
             )
             LibraryIndex.shared.setMetadata(metadata, forPath: url.path)
 
-            NSLog("[Analysis] %@ → BPM=%.2f, key=%@ (%@), \"%@\" by %@, duration=%.1fs",
+            NSLog("[Analysis] %@ → BPM=%.2f, key=%@ (%@), \"%@\" by %@, duration=%.1fs, bands=%d",
                   url.lastPathComponent, bpm,
                   keyResult.keyName.isEmpty ? "?" : keyResult.keyName,
                   keyResult.camelot.isEmpty ? "?" : keyResult.camelot,
                   meta.title, meta.artist.isEmpty ? "unknown" : meta.artist,
-                  duration)
-            return Result(url: url, metadata: metadata, peaks: peaks)
+                  duration, bands.count / 3)
+            return Result(url: url, metadata: metadata, peaks: peaks, bandPeaks: bands)
         } catch {
             NSLog("[Analysis] failed for \(url.lastPathComponent): \(error)")
             return nil

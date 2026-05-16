@@ -16,4 +16,5 @@ struct TrackMetadata: Codable, Equatable {
     var artist: String = ""
     var album: String = ""
     var artworkPath: String = ""
+    var bandPeaksPath: String = ""
 }
