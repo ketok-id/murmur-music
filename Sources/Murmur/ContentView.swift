@@ -253,7 +253,10 @@ struct ContentView: View {
     private func submitURL() {
         let trimmed = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        if controller.load(input: trimmed) {
+        // Pipe through YouTubeURL.parse so any URL format works. Fall back to
+        // raw input so PlayerController's existing parsing still handles edge cases.
+        let input = YouTubeURL.parse(trimmed) ?? trimmed
+        if controller.load(input: input) {
             urlInput = ""
         }
     }
