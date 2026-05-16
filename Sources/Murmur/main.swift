@@ -406,6 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var videoWindow: VideoWindowController!
     let mixer = MixerEngine()
     var booth: BoothWindowController!
+    var recordings: RecordingsWindowController!
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -426,6 +427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         // Booth window — kept alive for the life of the app; hidden by default.
         booth = BoothWindowController(mixer: mixer)
+        recordings = RecordingsWindowController()
 
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
         popover = NSPopover()
@@ -440,6 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 .environmentObject(videoWindow)
                 .environmentObject(mixer)
                 .environmentObject(BoothLauncher(booth: booth))
+                .environmentObject(RecordingsLauncher(controller: recordings))
         )
 
         // 3) Menu bar icon.
@@ -476,6 +479,13 @@ final class BoothLauncher: ObservableObject {
     let booth: BoothWindowController
     init(booth: BoothWindowController) { self.booth = booth }
     func show() { booth.show() }
+}
+
+// MARK: - Recordings launcher (SwiftUI bridge)
+final class RecordingsLauncher: ObservableObject {
+    let controller: RecordingsWindowController
+    init(controller: RecordingsWindowController) { self.controller = controller }
+    func show() { controller.show() }
 }
 
 // MARK: - Boot
