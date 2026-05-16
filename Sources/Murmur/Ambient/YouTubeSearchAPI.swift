@@ -157,6 +157,43 @@ enum YouTubeSearchAPI {
         }
     }
 
+    /// Resolve a YouTube handle (e.g. "@lofigirl") to channel info.
+    /// 1 quota unit (same as fetchChannelDetails).
+    static func fetchChannelByHandle(handle: String, apiKey: String) async throws -> (channelId: String, title: String, thumbnailURL: URL?, uploadsPlaylistId: String) {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        let cleanHandle = handle.hasPrefix("@") ? handle : "@" + handle
+
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/channels")!
+        components.queryItems = [
+            URLQueryItem(name: "part", value: "snippet,contentDetails"),
+            URLQueryItem(name: "forHandle", value: cleanHandle),
+            URLQueryItem(name: "key", value: trimmedKey),
+        ]
+        guard let url = components.url else { throw SearchError.network("Failed to build URL") }
+
+        let (data, response) = try await safeGET(url: url)
+        try checkHTTPStatus(response: response, data: data)
+
+        do {
+            let decoded = try JSONDecoder().decode(YouTubeChannelsListWithIdResponse.self, from: data)
+            guard let item = decoded.items.first else {
+                throw SearchError.decode("Channel not found for \(cleanHandle)")
+            }
+            let thumb = item.snippet.thumbnails.medium.flatMap { URL(string: $0.url) }
+            return (
+                channelId: item.id,
+                title: item.snippet.title,
+                thumbnailURL: thumb,
+                uploadsPlaylistId: item.contentDetails.relatedPlaylists.uploads
+            )
+        } catch let err as SearchError {
+            throw err
+        } catch {
+            throw SearchError.decode(error.localizedDescription)
+        }
+    }
+
     /// List a channel's uploads, newest first. Returns a page of ~50 results +
     /// an optional nextPageToken for further pagination.
     static func listChannelUploads(uploadsPlaylistId: String, apiKey: String, pageToken: String? = nil) async throws -> (videos: [YTSearchResult], nextPageToken: String?) {
@@ -317,5 +354,31 @@ private struct YouTubePlaylistItemsResponse: Decodable {
     }
     struct ResourceId: Decodable {
         let videoId: String?
+    }
+}
+
+private struct YouTubeChannelsListWithIdResponse: Decodable {
+    let items: [Item]
+
+    struct Item: Decodable {
+        let id: String
+        let snippet: Snippet
+        let contentDetails: ContentDetails
+    }
+    struct Snippet: Decodable {
+        let title: String
+        let thumbnails: Thumbnails
+    }
+    struct Thumbnails: Decodable {
+        let medium: Thumb?
+    }
+    struct Thumb: Decodable {
+        let url: String
+    }
+    struct ContentDetails: Decodable {
+        let relatedPlaylists: RelatedPlaylists
+    }
+    struct RelatedPlaylists: Decodable {
+        let uploads: String
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import WebKit
 
@@ -407,6 +408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let mixer = MixerEngine()
     var booth: BoothWindowController!
     var recordings: RecordingsWindowController!
+    private var historyCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -454,6 +456,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
+
+        // Record videos to history as their titles arrive.
+        historyCancellable = controller.$title
+            .removeDuplicates()
+            .sink { [weak self] title in
+                guard let self = self else { return }
+                let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
+                let videoID = self.controller.currentVideoID
+                guard !trimmedTitle.isEmpty,
+                      trimmedTitle != "Loading…",
+                      trimmedTitle != "YouTube Live Stream",
+                      !videoID.isEmpty else { return }
+                PlayedVideoHistoryStore.shared.record(videoID: videoID, title: trimmedTitle)
+            }
     }
 
     @objc func togglePopover(_ sender: AnyObject?) {

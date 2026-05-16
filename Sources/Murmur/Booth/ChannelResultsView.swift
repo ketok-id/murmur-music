@@ -192,9 +192,32 @@ struct ChannelResultsView: View {
         loading = true
         errorMessage = nil
         do {
-            results = try await YouTubeSearchAPI.searchChannels(
-                query: query, apiKey: apiKeyStore.youtubeKey
-            )
+            if let parsed = YouTubeChannelURL.parse(query) {
+                let channelId: String
+                let title: String
+                let thumb: URL?
+                switch parsed {
+                case .channelId(let id):
+                    let details = try await YouTubeSearchAPI.fetchChannelDetails(
+                        channelId: id, apiKey: apiKeyStore.youtubeKey
+                    )
+                    channelId = id
+                    title = details.title
+                    thumb = details.thumbnailURL
+                case .handle(let handle):
+                    let resolved = try await YouTubeSearchAPI.fetchChannelByHandle(
+                        handle: handle, apiKey: apiKeyStore.youtubeKey
+                    )
+                    channelId = resolved.channelId
+                    title = resolved.title
+                    thumb = resolved.thumbnailURL
+                }
+                results = [YTChannelResult(channelId: channelId, title: title, thumbnailURL: thumb)]
+            } else {
+                results = try await YouTubeSearchAPI.searchChannels(
+                    query: query, apiKey: apiKeyStore.youtubeKey
+                )
+            }
         } catch let err as YouTubeSearchAPI.SearchError {
             errorMessage = err.errorDescription
         } catch {
