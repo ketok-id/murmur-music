@@ -35,22 +35,29 @@ struct DeckView: View {
                 }
             }
 
-            HStack(alignment: .top, spacing: 10) {
-                AlbumArtView(artworkPath: state.artworkPath, size: 44)
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 14) {
+                JogWheelView(state: state, tint: tint, size: 96)
+                VStack(alignment: .leading, spacing: 4) {
                     Text(displayTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.white)
                         .lineLimit(1)
                     if !state.artist.isEmpty {
                         Text(state.artist)
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.55))
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+                    if !state.album.isEmpty {
+                        Text(state.album)
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.4))
                             .lineLimit(1)
                     }
                 }
                 Spacer()
             }
+            .frame(height: 100)
 
             HStack(spacing: 12) {
                 if state.bpm > 0 {
