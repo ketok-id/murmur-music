@@ -7,6 +7,8 @@ struct ContentView: View {
     @EnvironmentObject var videoWindow: VideoWindowController
     @EnvironmentObject var booth: BoothLauncher
     @State private var urlInput: String = ""
+    @State private var showingAPIKeySheet: Bool = false
+    @ObservedObject private var apiKeyStore = APIKeyStore.shared
 
     // Cozy pixel-art palette: warm cream on near-black, peach accent for active states.
     private let bg     = Color(red: 0.05, green: 0.05, blue: 0.06)
@@ -69,8 +71,17 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Reload current stream")
+            Button(action: { showingAPIKeySheet = true }) {
+                Image(systemName: "gearshape")
+                    .foregroundColor(apiKeyStore.hasYouTubeKey ? accent : fgDim)
+            }
+            .buttonStyle(.plain)
+            .help(apiKeyStore.hasYouTubeKey ? "YouTube API key configured" : "Configure YouTube API key")
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .sheet(isPresented: $showingAPIKeySheet) {
+            APIKeySetupSheet(store: apiKeyStore)
+        }
     }
 
     private var headerLabel: String {
