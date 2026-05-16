@@ -44,4 +44,23 @@ final class DeckState: ObservableObject {
     @Published var hotCues: [HotCue] = []
     /// Observable loop state.
     let loop = LoopState()
+
+    // ── Phase 3: effects + key display ────────────────────────────────────
+
+    /// Musical key name (e.g. "D minor"), empty if not yet detected.
+    @Published var keyName: String = ""
+    /// Camelot wheel notation (e.g. "7A"), empty if not yet detected.
+    @Published var camelot: String = ""
+
+    /// Echo on/off.
+    @Published var echoEnabled: Bool = false
+    /// Echo wet/dry, 0…1.
+    @Published var echoWet: Float = 0.3
+    /// Beat divider for echo time: 4 = quarter, 8 = eighth, 16 = 16th.
+    @Published var echoDivider: Int = 8
+
+    /// Reverb on/off.
+    @Published var reverbEnabled: Bool = false
+    /// Reverb wet/dry, 0…1.
+    @Published var reverbWet: Float = 0.3
 }
