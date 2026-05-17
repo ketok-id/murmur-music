@@ -72,6 +72,7 @@ enum YouTubeSearchAPI {
                 throw SearchError.network("HTTP \(http.statusCode)")
             }
         }
+        QuotaTracker.shared.record(cost: 100)
 
         do {
             let decoded = try JSONDecoder().decode(YouTubeSearchResponse.self, from: data)
@@ -109,6 +110,7 @@ enum YouTubeSearchAPI {
 
         let (data, response) = try await safeGET(url: url)
         try checkHTTPStatus(response: response, data: data)
+        QuotaTracker.shared.record(cost: 100)
 
         do {
             let decoded = try JSONDecoder().decode(YouTubeChannelSearchResponse.self, from: data)
@@ -141,6 +143,7 @@ enum YouTubeSearchAPI {
 
         let (data, response) = try await safeGET(url: url)
         try checkHTTPStatus(response: response, data: data)
+        QuotaTracker.shared.record(cost: 1)
 
         do {
             let decoded = try JSONDecoder().decode(YouTubeChannelsListResponse.self, from: data)
@@ -177,6 +180,7 @@ enum YouTubeSearchAPI {
 
         let (data, response) = try await safeGET(url: url)
         try checkHTTPStatus(response: response, data: data)
+        QuotaTracker.shared.record(cost: 1)
 
         do {
             let decoded = try JSONDecoder().decode(YouTubeChannelsListWithIdResponse.self, from: data)
@@ -219,6 +223,7 @@ enum YouTubeSearchAPI {
 
         let (data, response) = try await safeGET(url: url)
         try checkHTTPStatus(response: response, data: data)
+        QuotaTracker.shared.record(cost: 1)
 
         do {
             let decoded = try JSONDecoder().decode(YouTubePlaylistItemsResponse.self, from: data)
@@ -253,6 +258,7 @@ enum YouTubeSearchAPI {
 
         let (data, response) = try await safeGET(url: url)
         try checkHTTPStatus(response: response, data: data)
+        QuotaTracker.shared.record(cost: 1)
 
         let decoded = try JSONDecoder().decode(YouTubeVideoDetailsResponse.self, from: data)
         var dict: [String: (duration: TimeInterval, categoryId: String)] = [:]
