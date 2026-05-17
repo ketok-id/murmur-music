@@ -328,12 +328,23 @@ struct YouTubeSearchSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.06), lineWidth: 0.5))
 
-                    Text(entry.title.isEmpty ? entry.videoID : entry.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(entry.title.isEmpty ? entry.videoID : entry.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let pos = entry.lastPosition, pos > 5 {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.uturn.left.circle")
+                                    .font(.system(size: 9))
+                                Text("Resume \(formatResumeTime(pos))")
+                                    .font(.system(size: 10, design: .monospaced))
+                            }
+                            .foregroundColor(.cyan.opacity(0.75))
+                        }
+                    }
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -350,6 +361,18 @@ struct YouTubeSearchSheet: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    private func formatResumeTime(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%d:%02d", m, s)
+        }
     }
 
     private func reenter(_ entry: SearchHistoryEntry) {
