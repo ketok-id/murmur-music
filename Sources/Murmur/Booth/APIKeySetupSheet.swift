@@ -2,6 +2,7 @@ import SwiftUI
 
 struct APIKeySetupSheet: View {
     @ObservedObject var store: APIKeyStore
+    @ObservedObject private var quota = QuotaTracker.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var draftKey: String = ""
@@ -48,6 +49,10 @@ struct APIKeySetupSheet: View {
                     .cornerRadius(4)
             }
 
+
+            Divider().background(Color.white.opacity(0.1))
+            quotaSection
+
             HStack(spacing: 8) {
                 if store.hasYouTubeKey {
                     Button("Clear saved key") {
@@ -72,5 +77,39 @@ struct APIKeySetupSheet: View {
         .frame(width: 380)
         .background(Color(white: 0.05))
         .onAppear { draftKey = store.youtubeKey }
+    }
+
+    private var quotaSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("QUOTA TODAY")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .tracking(1.5)
+                    .foregroundColor(.white.opacity(0.4))
+                Spacer()
+                Text("\(quota.usedToday) / \(QuotaTracker.dailyLimit)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(quota.fractionUsed >= 0.9 ? .red.opacity(0.85) : .white.opacity(0.7))
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.06))
+                    Rectangle()
+                        .fill(quota.fractionUsed >= 0.9 ? Color.red.opacity(0.8) :
+                              quota.fractionUsed >= 0.7 ? Color.orange.opacity(0.8) :
+                              Color.cyan.opacity(0.7))
+                        .frame(width: geo.size.width * CGFloat(quota.fractionUsed))
+                }
+            }
+            .frame(height: 4)
+            .cornerRadius(2)
+
+            Text("Resets at midnight Pacific. Murmur estimates client-side — actual quota may differ if you use the same key elsewhere.")
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.4))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
