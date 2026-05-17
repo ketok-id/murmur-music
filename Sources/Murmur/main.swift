@@ -414,6 +414,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var booth: BoothWindowController!
     var recordings: RecordingsWindowController!
     private var historyCancellable: AnyCancellable?
+    private var positionCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -474,6 +475,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                       trimmedTitle != "YouTube Live Stream",
                       !videoID.isEmpty else { return }
                 PlayedVideoHistoryStore.shared.record(videoID: videoID, title: trimmedTitle)
+            }
+
+        // Throttle position writes to ~5s so we don't hammer UserDefaults.
+        positionCancellable = controller.$currentTime
+            .throttle(for: .seconds(5), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] seconds in
+                guard let self = self else { return }
+                let videoID = self.controller.currentVideoID
+                guard !videoID.isEmpty, seconds > 1 else { return }
+                PlayedVideoHistoryStore.shared.updatePosition(videoID: videoID, seconds: seconds)
             }
     }
 
