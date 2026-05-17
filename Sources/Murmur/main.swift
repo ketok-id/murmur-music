@@ -91,6 +91,12 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     }
 
     func loadPlayer(videoID: String) {
+        // Look up resume position from history. Skip if too small (just
+        // started) or near the end (don't resume the last few seconds).
+        let savedPosition = PlayedVideoHistoryStore.shared.entries
+            .first(where: { $0.videoID == videoID })?
+            .lastPosition ?? 0
+        let startSeconds: Int = (savedPosition > 5) ? Int(savedPosition) : 0
         // We embed the official YouTube embed page in an iframe and talk to it via
         // the IFrame API's postMessage protocol. This avoids origin/baseURL issues
         // that plague using the YT.Player JS constructor inside loadHTMLString.
@@ -114,7 +120,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         </head><body>
         <div id="wrap"></div>
         <iframe id="player"
-          src="https://www.youtube-nocookie.com/embed/\(videoID)?enablejsapi=1&autoplay=1&controls=0&playsinline=1&modestbranding=1&rel=0&fs=0&iv_load_policy=3&origin=https://www.youtube-nocookie.com"
+          src="https://www.youtube-nocookie.com/embed/\(videoID)?enablejsapi=1&autoplay=1&controls=0&playsinline=1&modestbranding=1&rel=0&fs=0&iv_load_policy=3&origin=https://www.youtube-nocookie.com&start=\(startSeconds)"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowfullscreen></iframe>
         <div id="cover"></div>
