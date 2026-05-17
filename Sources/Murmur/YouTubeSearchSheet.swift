@@ -3,6 +3,11 @@ import SwiftUI
 /// Sheet presented from the main popover for searching YouTube and picking a
 /// result to load on the main player.
 struct YouTubeSearchSheet: View {
+    /// Seed mode when the sheet opens. Default: videos.
+    var initialMode: Mode = .videos
+    /// Seed query when the sheet opens. If non-empty, the sheet activates
+    /// the search immediately on appear.
+    var initialQuery: String = ""
     /// Called with the chosen result's video ID. Parent should dismiss + load.
     var onPick: (String) -> Void
 
@@ -40,7 +45,18 @@ struct YouTubeSearchSheet: View {
         }
         .frame(width: 420, height: 540)
         .background(Color(white: 0.05))
-        .onAppear { searchFocused = true }
+        .onAppear {
+            searchFocused = true
+            if !initialQuery.isEmpty {
+                mode = initialMode
+                draftQuery = initialQuery
+                activeQuery = initialQuery
+                SearchHistoryStore.shared.record(
+                    query: initialQuery,
+                    mode: initialMode == .videos ? .videos : .channels
+                )
+            }
+        }
     }
 
     private var modePicker: some View {
