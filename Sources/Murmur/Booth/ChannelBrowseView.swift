@@ -128,6 +128,22 @@ struct ChannelBrowseView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Play next") {
+                PlaybackQueue.shared.enqueueNext(
+                    videoID: video.videoID,
+                    title: video.title,
+                    thumbnailURL: video.thumbnailURL?.absoluteString ?? ""
+                )
+            }
+            Button("Add to queue") {
+                PlaybackQueue.shared.enqueue(
+                    videoID: video.videoID,
+                    title: video.title,
+                    thumbnailURL: video.thumbnailURL?.absoluteString ?? ""
+                )
+            }
+        }
     }
 
     private var loadMoreButton: some View {

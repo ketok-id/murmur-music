@@ -144,6 +144,22 @@ struct YouTubeResultsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Play next") {
+                PlaybackQueue.shared.enqueueNext(
+                    videoID: result.videoID,
+                    title: result.title,
+                    thumbnailURL: result.thumbnailURL?.absoluteString ?? ""
+                )
+            }
+            Button("Add to queue") {
+                PlaybackQueue.shared.enqueue(
+                    videoID: result.videoID,
+                    title: result.title,
+                    thumbnailURL: result.thumbnailURL?.absoluteString ?? ""
+                )
+            }
+        }
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {

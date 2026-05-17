@@ -350,6 +350,22 @@ struct YouTubeSearchSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                Button("Play next") {
+                    PlaybackQueue.shared.enqueueNext(
+                        videoID: entry.videoID,
+                        title: entry.title,
+                        thumbnailURL: entry.thumbnailURL?.absoluteString ?? ""
+                    )
+                }
+                Button("Add to queue") {
+                    PlaybackQueue.shared.enqueue(
+                        videoID: entry.videoID,
+                        title: entry.title,
+                        thumbnailURL: entry.thumbnailURL?.absoluteString ?? ""
+                    )
+                }
+            }
 
             Button(action: { played.remove(videoID: entry.videoID) }) {
                 Image(systemName: "xmark.circle")
