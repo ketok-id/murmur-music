@@ -5,6 +5,9 @@ struct YTSearchResult: Identifiable, Equatable {
     let title: String
     let channelTitle: String
     let thumbnailURL: URL?
+    /// Filled in by `YouTubeSearchAPI.fetchVideoDetails` after search.
+    var duration: TimeInterval? = nil
+    var categoryHint: VideoCategoryHint? = nil
 
     var id: String { videoID }
 }
@@ -235,6 +238,51 @@ enum YouTubeSearchAPI {
         }
     }
 
+    static func fetchVideoDetails(ids: [String], apiKey: String) async throws -> [String: (duration: TimeInterval, categoryId: String)] {
+        guard !ids.isEmpty else { return [:] }
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/videos")!
+        components.queryItems = [
+            URLQueryItem(name: "part", value: "contentDetails,snippet"),
+            URLQueryItem(name: "id", value: ids.joined(separator: ",")),
+            URLQueryItem(name: "key", value: trimmedKey),
+        ]
+        guard let url = components.url else { throw SearchError.network("Failed to build URL") }
+
+        let (data, response) = try await safeGET(url: url)
+        try checkHTTPStatus(response: response, data: data)
+
+        let decoded = try JSONDecoder().decode(YouTubeVideoDetailsResponse.self, from: data)
+        var dict: [String: (duration: TimeInterval, categoryId: String)] = [:]
+        for item in decoded.items {
+            let duration = parseISO8601Duration(item.contentDetails.duration) ?? 0
+            dict[item.id] = (duration: duration, categoryId: item.snippet.categoryId)
+        }
+        return dict
+    }
+
+    static func parseISO8601Duration(_ s: String) -> TimeInterval? {
+        guard s.hasPrefix("PT") else { return nil }
+        var remaining = Substring(s.dropFirst(2))
+        var total: TimeInterval = 0
+        while !remaining.isEmpty {
+            guard let unitIdx = remaining.firstIndex(where: { !$0.isNumber && $0 != "." }) else { return nil }
+            let numStr = String(remaining[..<unitIdx])
+            guard let num = Double(numStr) else { return nil }
+            let unit = remaining[unitIdx]
+            switch unit {
+            case "H": total += num * 3600
+            case "M": total += num * 60
+            case "S": total += num
+            default: return nil
+            }
+            remaining = remaining[remaining.index(after: unitIdx)...]
+        }
+        return total
+    }
+
     // MARK: - Shared HTTP helpers
 
     private static func safeGET(url: URL) async throws -> (Data, URLResponse) {
@@ -380,5 +428,21 @@ private struct YouTubeChannelsListWithIdResponse: Decodable {
     }
     struct RelatedPlaylists: Decodable {
         let uploads: String
+    }
+}
+
+private struct YouTubeVideoDetailsResponse: Decodable {
+    let items: [Item]
+
+    struct Item: Decodable {
+        let id: String
+        let snippet: Snippet
+        let contentDetails: ContentDetails
+    }
+    struct Snippet: Decodable {
+        let categoryId: String
+    }
+    struct ContentDetails: Decodable {
+        let duration: String
     }
 }
