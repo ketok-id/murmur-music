@@ -441,6 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let mixer = MixerEngine()
     var booth: BoothWindowController!
     var recordings: RecordingsWindowController!
+    let queueLauncher = QueueLauncher()
     private var historyCancellable: AnyCancellable?
     private var positionCancellable: AnyCancellable?
 
@@ -479,6 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 .environmentObject(mixer)
                 .environmentObject(BoothLauncher(booth: booth))
                 .environmentObject(RecordingsLauncher(controller: recordings))
+                .environmentObject(queueLauncher)
         )
 
         // 3) Menu bar icon.
@@ -514,6 +516,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 guard !videoID.isEmpty, seconds > 1 else { return }
                 PlayedVideoHistoryStore.shared.updatePosition(videoID: videoID, seconds: seconds)
             }
+
+        // Queue auto-advance.
+        controller.onEnded = { [weak self] in
+            guard let self = self else { return }
+            if let next = PlaybackQueue.shared.popNext() {
+                _ = self.controller.load(input: next.videoID)
+            }
+        }
     }
 
     @objc func togglePopover(_ sender: AnyObject?) {
@@ -546,6 +556,12 @@ final class RecordingsLauncher: ObservableObject {
     let controller: RecordingsWindowController
     init(controller: RecordingsWindowController) { self.controller = controller }
     func show() { controller.show() }
+}
+
+// MARK: - Queue launcher (SwiftUI bridge)
+final class QueueLauncher: ObservableObject {
+    @Published var isShowing = false
+    func show() { isShowing = true }
 }
 
 // MARK: - Boot
