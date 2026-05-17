@@ -9,6 +9,8 @@ struct ContentView: View {
     @State private var urlInput: String = ""
     @State private var showingAPIKeySheet: Bool = false
     @State private var showingYouTubeSearch: Bool = false
+    @State private var ytInitialMode: YouTubeSearchSheet.Mode = .videos
+    @State private var ytInitialQuery: String = ""
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
 
     // Cozy pixel-art palette: warm cream on near-black, peach accent for active states.
@@ -107,7 +109,11 @@ struct ContentView: View {
             .fixedSize()
             .help("Favorites & discover")
 
-            Button(action: { showingYouTubeSearch = true }) {
+            Button(action: {
+                ytInitialMode = .videos
+                ytInitialQuery = ""
+                showingYouTubeSearch = true
+            }) {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(fgDim)
             }
@@ -126,7 +132,10 @@ struct ContentView: View {
         .padding(.vertical, 7)
         .overlay(Rectangle().stroke(border, style: dashStyle))
         .sheet(isPresented: $showingYouTubeSearch) {
-            YouTubeSearchSheet { videoID in
+            YouTubeSearchSheet(
+                initialMode: ytInitialMode,
+                initialQuery: ytInitialQuery
+            ) { videoID in
                 _ = controller.load(input: videoID)
             }
         }
@@ -276,8 +285,15 @@ struct ContentView: View {
     private func submitURL() {
         let trimmed = urlInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // Pipe through YouTubeURL.parse so any URL format works. Fall back to
-        // raw input so PlayerController's existing parsing still handles edge cases.
+
+        if YouTubeChannelURL.parse(trimmed) != nil {
+            ytInitialMode = .channels
+            ytInitialQuery = trimmed
+            showingYouTubeSearch = true
+            urlInput = ""
+            return
+        }
+
         let input = YouTubeURL.parse(trimmed) ?? trimmed
         if controller.load(input: input) {
             urlInput = ""
