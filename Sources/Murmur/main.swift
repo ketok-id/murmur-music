@@ -65,6 +65,8 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var title: String = "YouTube Live Stream"
     @Published var status: String = "Loading…"
     @Published private(set) var currentVideoID: String = kDefaultVideoID
+    /// Current playhead in seconds, updated from iframe infoDelivery events.
+    @Published var currentTime: Double = 0
     let webView: WKWebView
     /// Fired immediately before a new stream's HTML is loaded into the webview.
     /// Used by VideoWindowController to mask the WKWebView reload flash.
@@ -89,6 +91,12 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     }
 
     func loadPlayer(videoID: String) {
+        // Look up resume position from history. Skip if too small (just
+        // started) or near the end (don't resume the last few seconds).
+        let savedPosition = PlayedVideoHistoryStore.shared.entries
+            .first(where: { $0.videoID == videoID })?
+            .lastPosition ?? 0
+        let startSeconds: Int = (savedPosition > 5) ? Int(savedPosition) : 0
         // We embed the official YouTube embed page in an iframe and talk to it via
         // the IFrame API's postMessage protocol. This avoids origin/baseURL issues
         // that plague using the YT.Player JS constructor inside loadHTMLString.
@@ -112,7 +120,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         </head><body>
         <div id="wrap"></div>
         <iframe id="player"
-          src="https://www.youtube-nocookie.com/embed/\(videoID)?enablejsapi=1&autoplay=1&controls=0&playsinline=1&modestbranding=1&rel=0&fs=0&iv_load_policy=3&origin=https://www.youtube-nocookie.com"
+          src="https://www.youtube-nocookie.com/embed/\(videoID)?enablejsapi=1&autoplay=1&controls=0&playsinline=1&modestbranding=1&rel=0&fs=0&iv_load_policy=3&origin=https://www.youtube-nocookie.com&start=\(startSeconds)"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowfullscreen></iframe>
         <div id="cover"></div>
@@ -167,6 +175,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
                 notify('state', {state:d.info.playerState});
               }
               if (d.info.videoData && d.info.videoData.title) notify('title', {title:d.info.videoData.title});
+              if (typeof d.info.currentTime === 'number') notify('time', {time: d.info.currentTime});
             } else if (d.event === 'onError') {
               notify('error', {code: d.info});
             }
@@ -261,6 +270,8 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                 }
             case "title":
                 if let t = body["title"] as? String, !t.isEmpty { c.title = t }
+            case "time":
+                if let t = body["time"] as? Double { c.currentTime = t }
             case "error":
                 let code = body["code"] as? Int ?? -1
                 c.status = "YouTube error \(code)"
@@ -409,6 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var booth: BoothWindowController!
     var recordings: RecordingsWindowController!
     private var historyCancellable: AnyCancellable?
+    private var positionCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -469,6 +481,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                       trimmedTitle != "YouTube Live Stream",
                       !videoID.isEmpty else { return }
                 PlayedVideoHistoryStore.shared.record(videoID: videoID, title: trimmedTitle)
+            }
+
+        // Throttle position writes to ~5s so we don't hammer UserDefaults.
+        positionCancellable = controller.$currentTime
+            .throttle(for: .seconds(5), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] seconds in
+                guard let self = self else { return }
+                let videoID = self.controller.currentVideoID
+                guard !videoID.isEmpty, seconds > 1 else { return }
+                PlayedVideoHistoryStore.shared.updatePosition(videoID: videoID, seconds: seconds)
             }
     }
 
