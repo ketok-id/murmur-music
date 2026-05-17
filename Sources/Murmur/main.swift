@@ -65,6 +65,8 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var title: String = "YouTube Live Stream"
     @Published var status: String = "Loading…"
     @Published private(set) var currentVideoID: String = kDefaultVideoID
+    /// Current playhead in seconds, updated from iframe infoDelivery events.
+    @Published var currentTime: Double = 0
     let webView: WKWebView
     /// Fired immediately before a new stream's HTML is loaded into the webview.
     /// Used by VideoWindowController to mask the WKWebView reload flash.
@@ -167,6 +169,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
                 notify('state', {state:d.info.playerState});
               }
               if (d.info.videoData && d.info.videoData.title) notify('title', {title:d.info.videoData.title});
+              if (typeof d.info.currentTime === 'number') notify('time', {time: d.info.currentTime});
             } else if (d.event === 'onError') {
               notify('error', {code: d.info});
             }
@@ -261,6 +264,8 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                 }
             case "title":
                 if let t = body["title"] as? String, !t.isEmpty { c.title = t }
+            case "time":
+                if let t = body["time"] as? Double { c.currentTime = t }
             case "error":
                 let code = body["code"] as? Int ?? -1
                 c.status = "YouTube error \(code)"
