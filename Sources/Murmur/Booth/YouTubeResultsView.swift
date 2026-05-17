@@ -87,20 +87,32 @@ struct YouTubeResultsView: View {
     private func row(_ result: YTSearchResult) -> some View {
         Button(action: { onPick(result) }) {
             HStack(alignment: .top, spacing: 12) {
-                AsyncImage(url: result.thumbnailURL) { phase in
-                    switch phase {
-                    case .empty:
-                        Rectangle().fill(Color.white.opacity(0.05))
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    case .failure:
-                        ZStack {
-                            Rectangle().fill(Color.white.opacity(0.04))
-                            Image(systemName: "play.rectangle")
-                                .foregroundColor(.white.opacity(0.3))
+                ZStack(alignment: .bottomTrailing) {
+                    AsyncImage(url: result.thumbnailURL) { phase in
+                        switch phase {
+                        case .empty:
+                            Rectangle().fill(Color.white.opacity(0.05))
+                        case .success(let image):
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        case .failure:
+                            ZStack {
+                                Rectangle().fill(Color.white.opacity(0.04))
+                                Image(systemName: "play.rectangle")
+                                    .foregroundColor(.white.opacity(0.3))
+                            }
+                        @unknown default:
+                            Color.clear
                         }
-                    @unknown default:
-                        Color.clear
+                    }
+                    if let duration = result.duration, duration > 0 {
+                        Text(formatDuration(duration))
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.black.opacity(0.75))
+                            .cornerRadius(2)
+                            .padding(3)
                     }
                 }
                 .frame(width: 80, height: 48)
@@ -108,12 +120,18 @@ struct YouTubeResultsView: View {
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.06), lineWidth: 0.5))
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(decodeHTMLEntities(result.title))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white.opacity(0.92))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 4) {
+                        if let hint = result.categoryHint, hint != .other, !hint.emoji.isEmpty {
+                            Text(hint.emoji)
+                                .font(.system(size: 11))
+                        }
+                        Text(decodeHTMLEntities(result.title))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white.opacity(0.92))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Text(result.channelTitle)
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
@@ -128,6 +146,18 @@ struct YouTubeResultsView: View {
         .buttonStyle(.plain)
     }
 
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%d:%02d", m, s)
+        }
+    }
+
     private func runSearch() async {
         loading = true
         errorMessage = nil
@@ -137,12 +167,31 @@ struct YouTubeResultsView: View {
                 apiKey: apiKeyStore.youtubeKey
             )
             results = res
+            loading = false
+
+            guard !res.isEmpty else { return }
+            let ids = res.map { $0.videoID }
+            if let details = try? await YouTubeSearchAPI.fetchVideoDetails(
+                ids: ids, apiKey: apiKeyStore.youtubeKey
+            ) {
+                results = res.map { result in
+                    var copy = result
+                    if let d = details[result.videoID] {
+                        copy.duration = d.duration
+                        copy.categoryHint = VideoCategoryHint.classify(
+                            categoryId: d.categoryId, title: result.title
+                        )
+                    }
+                    return copy
+                }
+            }
         } catch let err as YouTubeSearchAPI.SearchError {
             errorMessage = err.errorDescription
+            loading = false
         } catch {
             errorMessage = error.localizedDescription
+            loading = false
         }
-        loading = false
     }
 
     private func decodeHTMLEntities(_ s: String) -> String {
