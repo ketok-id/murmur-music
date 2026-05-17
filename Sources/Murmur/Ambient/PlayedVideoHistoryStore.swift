@@ -5,6 +5,8 @@ struct PlayedVideoEntry: Codable, Identifiable, Equatable {
     let videoID: String
     var title: String
     var date: Date
+    /// Last known playhead position in seconds, populated as the video plays.
+    var lastPosition: TimeInterval? = nil
 
     var id: String { videoID }
 
@@ -37,6 +39,14 @@ final class PlayedVideoHistoryStore: ObservableObject {
 
     func remove(videoID: String) {
         entries.removeAll { $0.videoID == videoID }
+        save()
+    }
+
+    /// Update the lastPosition for a videoID. No-op if the videoID isn't in
+    /// history yet (record happens via `record` first when the title arrives).
+    func updatePosition(videoID: String, seconds: TimeInterval) {
+        guard let i = entries.firstIndex(where: { $0.videoID == videoID }) else { return }
+        entries[i].lastPosition = seconds
         save()
     }
 
