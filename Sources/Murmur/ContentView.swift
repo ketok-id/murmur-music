@@ -6,6 +6,8 @@ struct ContentView: View {
     @EnvironmentObject var favorites: FavoritesStore
     @EnvironmentObject var videoWindow: VideoWindowController
     @EnvironmentObject var booth: BoothLauncher
+    @EnvironmentObject var queueLauncher: QueueLauncher
+    @ObservedObject private var playbackQueue = PlaybackQueue.shared
     @State private var urlInput: String = ""
     @State private var showingAPIKeySheet: Bool = false
     @State private var showingYouTubeSearch: Bool = false
@@ -73,6 +75,20 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Reload current stream")
+            Button(action: { queueLauncher.show() }) {
+                if playbackQueue.isEmpty {
+                    Image(systemName: "list.bullet")
+                        .foregroundColor(fgDim)
+                } else {
+                    HStack(spacing: 2) {
+                        Image(systemName: "list.bullet")
+                        Text("\(playbackQueue.count)")
+                    }
+                    .foregroundColor(accent)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Playback queue")
             Button(action: { showingAPIKeySheet = true }) {
                 Image(systemName: "gearshape")
                     .foregroundColor(apiKeyStore.hasYouTubeKey ? accent : fgDim)
@@ -83,6 +99,11 @@ struct ContentView: View {
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .sheet(isPresented: $showingAPIKeySheet) {
             APIKeySetupSheet(store: apiKeyStore)
+        }
+        .sheet(isPresented: $queueLauncher.isShowing) {
+            QueueSheet { item in
+                _ = controller.load(input: item.videoID)
+            }
         }
     }
 
@@ -155,6 +176,25 @@ struct ContentView: View {
             Text(String(format: "%03d", Int(controller.volume)))
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
                 .foregroundColor(fg)
+            Menu {
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
+                    Button(action: { controller.setPlaybackRate(rate) }) {
+                        if controller.playbackRate == rate {
+                            Label(String(format: "%.2fx", rate), systemImage: "checkmark")
+                        } else {
+                            Text(String(format: "%.2fx", rate))
+                        }
+                    }
+                }
+            } label: {
+                Text(String(format: "%.2gx", controller.playbackRate))
+                    .foregroundColor(controller.playbackRate == 1.0 ? fgDim : accent)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .help("Playback speed")
         }
     }
 
