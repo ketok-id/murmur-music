@@ -67,6 +67,12 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published private(set) var currentVideoID: String = kDefaultVideoID
     /// Current playhead in seconds, updated from iframe infoDelivery events.
     @Published var currentTime: Double = 0
+    /// Speed multiplier; 1.0 = normal. YouTube supports 0.25 – 2.0.
+    @Published var playbackRate: Double = 1.0 {
+        didSet { applyPlaybackRate() }
+    }
+    /// Called when the YouTube playerState transitions to ended (state 0).
+    var onEnded: (() -> Void)?
     let webView: WKWebView
     /// Fired immediately before a new stream's HTML is loaded into the webview.
     /// Used by VideoWindowController to mask the WKWebView reload flash.
@@ -228,6 +234,16 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     func unmute() { webView.evaluateJavaScript("window.ytCmd && ytCmd('unMute');", completionHandler: nil) }
     func reload() { isReady = false; isPlaying = false; status = "Reloading…"; loadPlayer(videoID: currentVideoID) }
 
+    func setPlaybackRate(_ rate: Double) {
+        playbackRate = rate
+    }
+
+    private func applyPlaybackRate() {
+        let rate = max(0.25, min(2.0, playbackRate))
+        webView.evaluateJavaScript("window.ytCmd && ytCmd('setPlaybackRate', [\(rate)]);",
+                                   completionHandler: nil)
+    }
+
     // MARK: WKNavigationDelegate
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -257,6 +273,9 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                 c.unmute()                       // some browsers autoplay muted
                 c.setVolume(Int(c.volume))
                 c.play()                         // attempt autoplay
+                if c.playbackRate != 1.0 {
+                    c.setPlaybackRate(c.playbackRate)
+                }
             case "state":
                 if let s = body["state"] as? Int {
                     // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
@@ -264,7 +283,10 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                     case 1: c.isPlaying = true;  c.status = "Live"
                     case 2: c.isPlaying = false; c.status = "Paused"
                     case 3: c.status = "Buffering…"
-                    case 0: c.isPlaying = false; c.status = "Ended"
+                    case 0:
+                        c.isPlaying = false
+                        c.status = "Ended"
+                        c.onEnded?()
                     default: break
                     }
                 }
