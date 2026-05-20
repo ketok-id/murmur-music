@@ -8,8 +8,10 @@ struct ContentView: View {
     @EnvironmentObject var booth: BoothLauncher
     @EnvironmentObject var queueLauncher: QueueLauncher
     @ObservedObject private var playbackQueue = PlaybackQueue.shared
+    @ObservedObject private var playlistStore = PlaylistStore.shared
     @State private var urlInput: String = ""
     @State private var showingAPIKeySheet: Bool = false
+    @State private var showingPlaylistSheet: Bool = false
     @State private var showingYouTubeSearch: Bool = false
     @State private var ytInitialMode: YouTubeSearchSheet.Mode = .videos
     @State private var ytInitialQuery: String = ""
@@ -40,7 +42,7 @@ struct ContentView: View {
             }
             .padding(outerPad)
         }
-        .frame(width: 300, height: 280)
+        .frame(width: 340, height: 280)
     }
 
     private var dancerRow: some View {
@@ -59,11 +61,13 @@ struct ContentView: View {
                 .foregroundColor(accent)
             Text("—")
                 .foregroundColor(fgDim)
-            Text(headerLabel)
-                .foregroundColor(fg)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer()
+            MarqueeText(
+                text: headerLabel,
+                font: .system(size: 11, weight: .medium, design: .monospaced),
+                foregroundColor: fg
+            )
+            .layoutPriority(0)
+            Spacer(minLength: 6)
             Button(action: { videoWindow.toggle() }) {
                 Text(videoWindow.isVisible ? "Video On" : "Video")
                     .foregroundColor(videoWindow.isVisible ? accent : fgDim)
@@ -75,6 +79,23 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .help("Reload current stream")
+            if playlistStore.hasActivePlaylist {
+                Button(action: { showingPlaylistSheet = true }) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "music.note.list")
+                        if let i = playlistStore.currentIndex {
+                            Text("\(i + 1)/\(playlistStore.items.count)")
+                                .font(.system(size: 9, design: .monospaced))
+                        } else {
+                            Text("\(playlistStore.items.count)")
+                                .font(.system(size: 9, design: .monospaced))
+                        }
+                    }
+                    .foregroundColor(.cyan.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .help("Playlist (Now Playing)")
+            }
             Button(action: { queueLauncher.show() }) {
                 if playbackQueue.isEmpty {
                     Image(systemName: "list.bullet")
@@ -103,6 +124,11 @@ struct ContentView: View {
         .sheet(isPresented: $queueLauncher.isShowing) {
             QueueSheet { item in
                 _ = controller.load(input: item.videoID)
+            }
+        }
+        .sheet(isPresented: $showingPlaylistSheet) {
+            PlaylistSheet { videoID in
+                _ = controller.load(input: videoID)
             }
         }
     }

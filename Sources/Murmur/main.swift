@@ -73,6 +73,8 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var mixHint: String = ""
     /// Current playhead in seconds, updated from iframe infoDelivery events.
     @Published var currentTime: Double = 0
+    /// Total video duration in seconds. 0 if unknown or for live streams.
+    @Published var duration: Double = 0
     /// Speed multiplier; 1.0 = normal. YouTube supports 0.25 – 2.0.
     @Published var playbackRate: Double = 1.0 {
         didSet { applyPlaybackRate() }
@@ -204,6 +206,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
                 }
               }
               if (typeof d.info.currentTime === 'number') notify('time', {time: d.info.currentTime});
+              if (typeof d.info.duration === 'number' && d.info.duration > 0) notify('duration', {duration: d.info.duration});
             } else if (d.event === 'onError') {
               notify('error', {code: d.info});
             }
@@ -215,6 +218,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com/"))
         currentVideoID = videoID
         currentPlaylistID = playlistID
+        duration = 0
     }
 
     private static func buildEmbedSrc(videoID: String, playlistID: String, startSeconds: Int) -> String {
@@ -257,6 +261,14 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         mixHint = PlayerController.isMixPlaylistID(playlistID)
             ? "YouTube Mix — may not auto-advance"
             : ""
+        // Enumerate the playlist into PlaylistStore so the UI can show it +
+        // follow YouTube's auto-advance. Mixes (RD…) are skipped because the
+        // Data API can't enumerate them.
+        if !playlistID.isEmpty, !PlayerController.isMixPlaylistID(playlistID) {
+            PlaylistStore.shared.load(playlistID: playlistID, apiKey: APIKeyStore.shared.youtubeKey)
+        } else {
+            PlaylistStore.shared.clear()
+        }
         loadPlayer(videoID: videoID, playlistID: playlistID)
         return true
     }
@@ -303,6 +315,15 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     func toggle(){ isPlaying ? pause() : play() }
     func setVolume(_ v: Int) { webView.evaluateJavaScript("window.ytCmd && ytCmd('setVolume', [\(v)]);", completionHandler: nil) }
     func unmute() { webView.evaluateJavaScript("window.ytCmd && ytCmd('unMute');", completionHandler: nil) }
+
+    /// Seek to a specific point in the current video. Updates `currentTime`
+    /// optimistically so scrubber UI doesn't jump back to the old value while
+    /// the iframe's next infoDelivery tick catches up.
+    func seek(to seconds: Double) {
+        let clamped = max(0, seconds)
+        currentTime = clamped
+        webView.evaluateJavaScript("window.ytCmd && ytCmd('seekTo', [\(clamped), true]);", completionHandler: nil)
+    }
     func reload() { isReady = false; isPlaying = false; status = "Reloading…"; loadPlayer(videoID: currentVideoID, playlistID: currentPlaylistID) }
 
     func setPlaybackRate(_ rate: Double) {
@@ -315,6 +336,8 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         guard !id.isEmpty, id != currentVideoID else { return }
         currentVideoID = id
         currentTime = 0
+        // Follow the cursor through an enumerated playlist (if any).
+        PlaylistStore.shared.updateCurrent(videoID: id)
     }
 
     private func applyPlaybackRate() {
@@ -375,6 +398,8 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                 if let id = body["videoId"] as? String { c.updateCurrentVideoID(id) }
             case "time":
                 if let t = body["time"] as? Double { c.currentTime = t }
+            case "duration":
+                if let d = body["duration"] as? Double, d > 0 { c.duration = d }
             case "error":
                 let code = body["code"] as? Int ?? -1
                 c.status = "YouTube error \(code)"
@@ -388,6 +413,17 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
 // surface drags the window. WKWebView captures mouseDown by default, which
 // defeats `isMovableByWindowBackground` on its own — this view returns
 // `mouseDownCanMoveWindow = true` so AppKit treats clicks as window drags.
+/// Container view for the video window. Catches mouseMoved/mouseExited via an
+/// NSTrackingArea owned by the view itself so the HUD can fade in on motion and
+/// out on idle. The HUD is a child view; this only handles the tracking signal.
+final class HoverTrackingView: NSView {
+    var onMouseMoved: (() -> Void)?
+    var onMouseExited: (() -> Void)?
+    override func mouseMoved(with event: NSEvent) { onMouseMoved?() }
+    override func mouseEntered(with event: NSEvent) { onMouseMoved?() }
+    override func mouseExited(with event: NSEvent) { onMouseExited?() }
+}
+
 final class WindowDragOverlay: NSView {
     // Explicitly drive the window drag — `mouseDownCanMoveWindow` alone is
     // unreliable when this view is layered over a WKWebView, because WebKit's
@@ -410,8 +446,19 @@ final class VideoWindowController: NSObject, ObservableObject, NSWindowDelegate 
     private var savedFrame: NSRect?
     private let loadingMask: NSView
     private var hideMaskWorkItem: DispatchWorkItem?
+    private let hudContainer: NSVisualEffectView
+    private var hudHideWorkItem: DispatchWorkItem?
+    private var trackingArea: NSTrackingArea?
+    /// HUD layout is recomputed on every resize so the bar scales with the
+    /// window. Heights/insets are clamped so we don't get a microscopic HUD on
+    /// a tiny window or a giant one on a maximized window.
+    private static let hudHeightMin: CGFloat = 36
+    private static let hudHeightMax: CGFloat = 72
+    private static let hudInsetMin: CGFloat = 8
+    private static let hudInsetMax: CGFloat = 20
 
-    init(webView: WKWebView) {
+    init(controller: PlayerController) {
+        let webView = controller.webView
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 270),
             styleMask: [.borderless],
@@ -421,9 +468,10 @@ final class VideoWindowController: NSObject, ObservableObject, NSWindowDelegate 
         window.isReleasedWhenClosed = false
 
         // Container holds (bottom-up): webView, opaque loading mask, transparent
-        // drag overlay. The mask hides any flash of the previous stream during a
-        // WKWebView reload; the drag overlay stays on top so dragging always works.
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 270))
+        // drag overlay, HUD controls overlay. The mask hides any flash of the
+        // previous stream during a WKWebView reload; the drag overlay catches
+        // mouseDowns everywhere except inside the HUD frame.
+        let container = HoverTrackingView(frame: NSRect(x: 0, y: 0, width: 480, height: 270))
         container.autoresizingMask = [.width, .height]
 
         webView.frame = container.bounds
@@ -441,11 +489,101 @@ final class VideoWindowController: NSObject, ObservableObject, NSWindowDelegate 
         dragOverlay.autoresizingMask = [.width, .height]
         container.addSubview(dragOverlay)
 
+        // HUD bar: NSVisualEffectView for native QuickTime-style vibrancy,
+        // bottom-anchored with side+bottom insets. NSHostingView paints the
+        // SwiftUI controls on top of the vibrancy material. Frame is
+        // recomputed in layoutHUD() on every resize so the bar scales.
+        hudContainer = NSVisualEffectView(frame: .zero)
+        hudContainer.material = .hudWindow
+        hudContainer.blendingMode = .withinWindow
+        hudContainer.state = .active
+        hudContainer.wantsLayer = true
+        hudContainer.layer?.masksToBounds = true
+        hudContainer.alphaValue = 0
+        container.addSubview(hudContainer)
+
         window.contentView = container
         window.setFrameOrigin(NSPoint(x: -3000, y: -3000))
         window.orderBack(nil)
         super.init()
         window.delegate = self
+
+        // Mount the SwiftUI HUD inside the visual-effect container.
+        let hudView = VideoControlsHUD(controller: controller) { [weak self] in
+            self?.setVisible(false)
+        }
+        let hosting = NSHostingView(rootView: hudView)
+        hosting.frame = hudContainer.bounds
+        hosting.autoresizingMask = [.width, .height]
+        hudContainer.addSubview(hosting)
+
+        container.onMouseMoved = { [weak self] in self?.revealHUD() }
+        container.onMouseExited = { [weak self] in self?.scheduleHUDHide(after: 0.4) }
+        rebuildTrackingArea(container: container)
+        layoutHUD()
+    }
+
+    /// Recompute HUD frame + corner radius based on current window size so the
+    /// bar scales with the video. Called from init and `windowDidResize`.
+    private func layoutHUD() {
+        guard let container = window.contentView else { return }
+        let h = container.bounds.height
+        // Height tracks ~14% of window height, clamped to a sensible range.
+        let hudHeight = max(Self.hudHeightMin, min(Self.hudHeightMax, h * 0.14))
+        let inset = max(Self.hudInsetMin, min(Self.hudInsetMax, h * 0.045))
+        let cornerRadius = min(14, hudHeight * 0.28)
+        hudContainer.frame = NSRect(
+            x: inset,
+            y: inset,
+            width: max(120, container.bounds.width - inset * 2),
+            height: hudHeight
+        )
+        hudContainer.layer?.cornerRadius = cornerRadius
+        // Resize the hosting view (and therefore the SwiftUI HUD) to match.
+        if let hosting = hudContainer.subviews.first {
+            hosting.frame = hudContainer.bounds
+        }
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        layoutHUD()
+    }
+
+    private func rebuildTrackingArea(container: NSView) {
+        if let existing = trackingArea {
+            container.removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: container.bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            owner: container,
+            userInfo: nil
+        )
+        container.addTrackingArea(area)
+        trackingArea = area
+    }
+
+    private func revealHUD() {
+        hudHideWorkItem?.cancel()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            hudContainer.animator().alphaValue = 1
+        }
+        scheduleHUDHide(after: 2.5)
+    }
+
+    private func scheduleHUDHide(after seconds: TimeInterval) {
+        hudHideWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.fadeOutHUD() }
+        hudHideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    private func fadeOutHUD() {
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.4
+            hudContainer.animator().alphaValue = 0
+        }
     }
 
     func toggle() { setVisible(!isVisible) }
@@ -529,7 +667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
         //    user can toggle it visible from the popover.
-        videoWindow = VideoWindowController(webView: controller.webView)
+        videoWindow = VideoWindowController(controller: controller)
         // Mask the webview during a stream switch so YouTube's loading overlay /
         // brief flash of the previous stream never shows in the visible window.
         controller.onWillLoadStream = { [weak self] in
@@ -549,7 +687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 300, height: 280)
+        popover.contentSize = NSSize(width: 340, height: 280)
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self

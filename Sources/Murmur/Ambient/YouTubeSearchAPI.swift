@@ -201,6 +201,16 @@ enum YouTubeSearchAPI {
         }
     }
 
+    /// List items in an arbitrary YouTube playlist (`PL…` style). Returns
+    /// `YTSearchResult`-shaped entries. YouTube Mix/Radio playlists (`RD…`)
+    /// are dynamic/server-generated and not enumerable through this endpoint —
+    /// callers should skip those.
+    ///
+    /// Costs 1 quota unit per page. Pages up to 50 items at a time.
+    static func fetchPlaylistItems(playlistId: String, apiKey: String, pageToken: String? = nil) async throws -> (videos: [YTSearchResult], nextPageToken: String?) {
+        return try await listChannelUploads(uploadsPlaylistId: playlistId, apiKey: apiKey, pageToken: pageToken)
+    }
+
     /// List a channel's uploads, newest first. Returns a page of ~50 results +
     /// an optional nextPageToken for further pagination.
     static func listChannelUploads(uploadsPlaylistId: String, apiKey: String, pageToken: String? = nil) async throws -> (videos: [YTSearchResult], nextPageToken: String?) {
