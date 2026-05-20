@@ -116,7 +116,14 @@ struct PlaylistSheet: View {
     private func row(_ entry: PlaylistEntry, index: Int) -> some View {
         let isCurrent = (store.currentIndex == index)
         return Button(action: {
-            onPick(entry.videoID)
+            // Preserve playlist context so YouTube keeps auto-advancing after
+            // the picked video, and so the load(input:) parser keeps the
+            // PlaylistStore alive instead of clearing it.
+            if !store.playlistID.isEmpty {
+                onPick("https://www.youtube.com/watch?v=\(entry.videoID)&list=\(store.playlistID)")
+            } else {
+                onPick(entry.videoID)
+            }
             dismiss()
         }) {
             HStack(spacing: 10) {

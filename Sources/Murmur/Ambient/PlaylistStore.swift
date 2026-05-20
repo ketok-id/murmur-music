@@ -35,11 +35,24 @@ final class PlaylistStore: ObservableObject {
     var hasActivePlaylist: Bool { !playlistID.isEmpty && !items.isEmpty }
 
     /// Load the enumerated items for a `PL…` playlist. Cancels any in-flight
-    /// load. No-ops for empty IDs or `RD…` mixes.
-    func load(playlistID: String, apiKey: String) {
+    /// load. No-ops for empty IDs or `RD…` mixes. Idempotent for the same
+    /// playlistID — re-calling with the currently-loaded playlist preserves
+    /// items + currentIndex (so picking a video from the playlist sheet
+    /// doesn't blank out the UI while the iframe restarts).
+    ///
+    /// Pass `seedVideoID` to immediately position `currentIndex` once items
+    /// finish loading — needed for the initial-paste case where the iframe
+    /// might fire its `video` notification before our items are ready.
+    func load(playlistID: String, apiKey: String, seedVideoID: String = "") {
         let trimmedID = playlistID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedID.isEmpty, !trimmedID.hasPrefix("RD") else {
             clear()
+            return
+        }
+        if trimmedID == self.playlistID && !items.isEmpty {
+            if !seedVideoID.isEmpty {
+                updateCurrent(videoID: seedVideoID)
+            }
             return
         }
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -55,11 +68,11 @@ final class PlaylistStore: ObservableObject {
         self.errorMessage = nil
 
         loadTask = Task { [weak self] in
-            await self?.runLoad(playlistID: trimmedID, apiKey: trimmedKey)
+            await self?.runLoad(playlistID: trimmedID, apiKey: trimmedKey, seedVideoID: seedVideoID)
         }
     }
 
-    private func runLoad(playlistID: String, apiKey: String) async {
+    private func runLoad(playlistID: String, apiKey: String, seedVideoID: String) async {
         var collected: [PlaylistEntry] = []
         var pageToken: String? = nil
         do {
@@ -88,6 +101,9 @@ final class PlaylistStore: ObservableObject {
                 self.items = final
                 self.isLoading = false
                 self.errorMessage = nil
+                if !seedVideoID.isEmpty {
+                    self.updateCurrent(videoID: seedVideoID)
+                }
             }
         } catch let err as YouTubeSearchAPI.SearchError {
             await MainActor.run {

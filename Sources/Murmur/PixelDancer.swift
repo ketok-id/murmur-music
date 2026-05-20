@@ -10,6 +10,9 @@ import SwiftUI
 
 struct CassetteTape: View {
     @ObservedObject var controller: PlayerController
+    @ObservedObject private var playlist = PlaylistStore.shared
+    @ObservedObject private var queue = PlaybackQueue.shared
+    @ObservedObject private var trending = TrendingRegionStore.shared
 
     private static let onColor   = Color(red: 0.96, green: 0.65, blue: 0.45)   // peach (playing)
     private static let idleColor = Color(red: 0.91, green: 0.87, blue: 0.78)   // cream (paused)
@@ -24,32 +27,70 @@ struct CassetteTape: View {
                         draw(in: ctx, size: size, time: context.date.timeIntervalSinceReferenceDate)
                     }
                 }
-                playButton(geo: geo)
+                transportControls(geo: geo)
             }
         }
         .aspectRatio(2.4, contentMode: .fit)
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Play button overlay
+    // MARK: - Transport controls overlay
 
-    private func playButton(geo: GeometryProxy) -> some View {
+    private var canPlayPrev: Bool {
+        playlist.hasActivePlaylist
+            && (playlist.currentIndex ?? 0) > 0
+    }
+
+    private var canPlayNext: Bool {
+        if playlist.hasActivePlaylist,
+           let idx = playlist.currentIndex,
+           idx + 1 < playlist.items.count {
+            return true
+        }
+        if !queue.isEmpty { return true }
+        if trending.autoFillFromTrending { return true }
+        return false
+    }
+
+    private func transportControls(geo: GeometryProxy) -> some View {
+        HStack(spacing: 6) {
+            transportButton(symbol: "⏮", enabled: canPlayPrev, action: { controller.playPrev() })
+            playButton
+            transportButton(symbol: "⏭", enabled: canPlayNext, action: { controller.playNext() })
+        }
+        .position(x: geo.size.width / 2, y: geo.size.height * 0.62)
+    }
+
+    private var playButton: some View {
         let buttonColor: Color = controller.isReady
             ? (controller.isPlaying ? Self.onColor : Self.idleColor)
             : Self.idleColor.opacity(0.45)
-
         return Button(action: { controller.toggle() }) {
             Text(controller.isPlaying ? "❚❚" : "▶")
                 .font(.system(size: 14, weight: .medium, design: .monospaced))
                 .foregroundColor(buttonColor)
                 .frame(width: 36, height: 26)
-                .background(Self.bgColor)                                 // mask cassette behind
+                .background(Self.bgColor)
                 .overlay(Rectangle().stroke(buttonColor.opacity(0.7),
                                             style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
         }
         .buttonStyle(.plain)
         .disabled(!controller.isReady)
-        .position(x: geo.size.width / 2, y: geo.size.height * 0.62)
+    }
+
+    private func transportButton(symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        let color: Color = enabled ? Self.idleColor : Self.idleColor.opacity(0.30)
+        return Button(action: action) {
+            Text(symbol)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(color)
+                .frame(width: 26, height: 20)
+                .background(Self.bgColor)
+                .overlay(Rectangle().stroke(color.opacity(0.6),
+                                            style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     // MARK: - Cassette drawing

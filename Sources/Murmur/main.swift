@@ -162,11 +162,26 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
               window.webkit.messageHandlers.cb.postMessage(m);
             } catch(e){}
           }
-          // Begin listening for player events
+          // Begin listening for player events. YouTube's internal player JS
+          // doesn't always finish initializing by the time the iframe's load
+          // event fires, so a single 'listening' post can race past it and be
+          // ignored. Retry on a short interval until onReady arrives (or give
+          // up after ~3s so we don't leak the interval).
+          var listeningInterval = null;
+          var listeningAttempts = 0;
+          function stopListeningRetry(){
+            if (listeningInterval) { clearInterval(listeningInterval); listeningInterval = null; }
+          }
           iframe.addEventListener('load', function(){
-            // Required handshake to start receiving onReady / onStateChange events
-            post({event:'listening', id:'player', channel:'widget'});
             notify('iframe-loaded');
+            stopListeningRetry();
+            listeningAttempts = 0;
+            post({event:'listening', id:'player', channel:'widget'});
+            listeningInterval = setInterval(function(){
+              listeningAttempts += 1;
+              if (listeningAttempts > 20) { stopListeningRetry(); return; }
+              post({event:'listening', id:'player', channel:'widget'});
+            }, 150);
           });
           var cover = document.getElementById('cover');
           var coverDismissed = false;
@@ -186,6 +201,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
             var d;
             try { d = JSON.parse(e.data); } catch(_) { return; }
             if (d.event === 'onReady') {
+              stopListeningRetry();
               notify('ready');
             } else if (d.event === 'onStateChange') {
               if (d.info === 1) hideCover();
@@ -219,6 +235,14 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         currentVideoID = videoID
         currentPlaylistID = playlistID
         duration = 0
+        // Sync the playlist cursor right away. If items are already loaded,
+        // this moves the highlight (and gates prev/next correctly) without
+        // waiting for the iframe's `video` notification — which would
+        // otherwise be short-circuited by the equality guard in
+        // `updateCurrentVideoID` since we just assigned currentVideoID above.
+        if !videoID.isEmpty {
+            PlaylistStore.shared.updateCurrent(videoID: videoID)
+        }
     }
 
     private static func buildEmbedSrc(videoID: String, playlistID: String, startSeconds: Int) -> String {
@@ -265,7 +289,14 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         // follow YouTube's auto-advance. Mixes (RD…) are skipped because the
         // Data API can't enumerate them.
         if !playlistID.isEmpty, !PlayerController.isMixPlaylistID(playlistID) {
-            PlaylistStore.shared.load(playlistID: playlistID, apiKey: APIKeyStore.shared.youtubeKey)
+            // Pass the videoID as a seed so the cursor lands on the right
+            // entry once items finish fetching (initial paste case where
+            // updateCurrent in loadPlayer no-ops on empty items).
+            PlaylistStore.shared.load(
+                playlistID: playlistID,
+                apiKey: APIKeyStore.shared.youtubeKey,
+                seedVideoID: videoID
+            )
         } else {
             PlaylistStore.shared.clear()
         }
@@ -324,6 +355,42 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         currentTime = clamped
         webView.evaluateJavaScript("window.ytCmd && ytCmd('seekTo', [\(clamped), true]);", completionHandler: nil)
     }
+
+    /// Advance to the next track. Priority: active playlist → queue → trending
+    /// auto-fill (if enabled). Matches the onEnded auto-advance flow.
+    func playNext() {
+        let playlist = PlaylistStore.shared
+        if playlist.hasActivePlaylist,
+           let idx = playlist.currentIndex,
+           idx + 1 < playlist.items.count {
+            let next = playlist.items[idx + 1]
+            _ = load(input: "https://www.youtube.com/watch?v=\(next.videoID)&list=\(playlist.playlistID)")
+            return
+        }
+        if let next = PlaybackQueue.shared.popNext() {
+            _ = load(input: next.videoID)
+            return
+        }
+        guard TrendingRegionStore.shared.autoFillFromTrending else { return }
+        let finishedID = currentVideoID
+        Task { @MainActor in
+            await PlaybackQueue.shared.refillFromTrending(excluding: finishedID)
+            if let next = PlaybackQueue.shared.popNext() {
+                _ = self.load(input: next.videoID)
+            }
+        }
+    }
+
+    /// Step back one track. Only meaningful when a playlist is loaded — we
+    /// don't keep a play history for ad-hoc videos.
+    func playPrev() {
+        let playlist = PlaylistStore.shared
+        guard playlist.hasActivePlaylist,
+              let idx = playlist.currentIndex,
+              idx > 0 else { return }
+        let prev = playlist.items[idx - 1]
+        _ = load(input: "https://www.youtube.com/watch?v=\(prev.videoID)&list=\(playlist.playlistID)")
+    }
     func reload() { isReady = false; isPlaying = false; status = "Reloading…"; loadPlayer(videoID: currentVideoID, playlistID: currentPlaylistID) }
 
     func setPlaybackRate(_ rate: Double) {
@@ -351,9 +418,16 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             // Some live streams never fire onReady through the channel handshake on
             // the initial load. After a beat, mark ready so the user can press play.
+            // Also fire a best-effort play() — on subsequent reloads (e.g. user
+            // hit Next), onReady can be missed by the listening handshake race;
+            // if YouTube's player is in fact ready, this kicks autoplay; if it
+            // isn't, ytCmd silently no-ops and the user can still press Play.
             if !self.isReady {
                 self.isReady = true
                 self.status = "Ready (autoplay may have been blocked — press Play)"
+                self.unmute()
+                self.setVolume(Int(self.volume))
+                self.play()
             }
         }
     }
