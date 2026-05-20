@@ -56,7 +56,7 @@ Produces:
 
 Optional flags:
 
-- `--sign` — ad-hoc codesign (helps Gatekeeper, doesn't replace a real Developer ID)
+- `--no-sign` — skip ad-hoc codesign (default is **on**; turning it off will produce a binary Apple Silicon refuses to launch)
 - `--open` — open the `dist/` folder in Finder when done
 
 ### Sharing

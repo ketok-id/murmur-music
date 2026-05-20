@@ -2,8 +2,8 @@
 # Build Murmur.app and zip it for sharing.
 # Run this on macOS. Requires Xcode Command Line Tools (Swift 5.9+).
 #
-#   ./build-app.sh             # builds .app + .zip in ./dist
-#   ./build-app.sh --sign       # ad-hoc codesign (helps Gatekeeper a bit)
+#   ./build-app.sh             # builds .app + .zip in ./dist (ad-hoc signed)
+#   ./build-app.sh --no-sign    # skip ad-hoc codesign (not recommended — Apple Silicon will refuse unsigned binaries as "damaged")
 #   ./build-app.sh --open       # also open the dist folder in Finder when done
 
 set -euo pipefail
@@ -16,11 +16,12 @@ VERSION="2026.05.20.1"
 DIST_DIR="dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 
-SIGN=0
+SIGN=1
 OPEN_DIST=0
 for arg in "$@"; do
   case "$arg" in
     --sign) SIGN=1 ;;
+    --no-sign) SIGN=0 ;;
     --open) OPEN_DIST=1 ;;
     *) echo "Unknown flag: $arg"; exit 2 ;;
   esac
