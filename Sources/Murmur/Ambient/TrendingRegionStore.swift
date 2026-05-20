@@ -1,24 +1,40 @@
 import Foundation
 import SwiftUI
 
-/// Persisted region code used for the YouTube "most popular" chart.
-/// Falls back to `Locale.current.region` on first launch, then "US".
+/// Persisted preferences for the YouTube "most popular" chart:
+/// region code, optional category filter, and auto-fill-on-queue-empty toggle.
+/// Region falls back to `Locale.current.region` on first launch, then "US".
 final class TrendingRegionStore: ObservableObject {
     static let shared = TrendingRegionStore()
-    private static let key = "youtube-audio-widget.trending.region.v1"
+    private static let regionKey = "youtube-audio-widget.trending.region.v1"
+    private static let categoryKey = "youtube-audio-widget.trending.category.v1"
+    private static let autoFillKey = "youtube-audio-widget.trending.autofill.v1"
 
     @Published var regionCode: String {
-        didSet {
-            UserDefaults.standard.set(regionCode, forKey: Self.key)
-        }
+        didSet { UserDefaults.standard.set(regionCode, forKey: Self.regionKey) }
+    }
+
+    /// Empty string = "All" (no category filter). Otherwise a YouTube
+    /// videoCategoryId like "10" (Music) or "20" (Gaming).
+    @Published var categoryId: String {
+        didSet { UserDefaults.standard.set(categoryId, forKey: Self.categoryKey) }
+    }
+
+    /// When true and the playback queue empties at end-of-track, the player
+    /// fetches trending and refills the queue automatically. Off by default
+    /// to avoid surprising users with unexpected network activity.
+    @Published var autoFillFromTrending: Bool {
+        didSet { UserDefaults.standard.set(autoFillFromTrending, forKey: Self.autoFillKey) }
     }
 
     private init() {
-        if let stored = UserDefaults.standard.string(forKey: Self.key), !stored.isEmpty {
+        if let stored = UserDefaults.standard.string(forKey: Self.regionKey), !stored.isEmpty {
             self.regionCode = stored.uppercased()
         } else {
             self.regionCode = Self.localeRegion() ?? "US"
         }
+        self.categoryId = UserDefaults.standard.string(forKey: Self.categoryKey) ?? ""
+        self.autoFillFromTrending = UserDefaults.standard.bool(forKey: Self.autoFillKey)
     }
 
     private static func localeRegion() -> String? {
@@ -86,5 +102,29 @@ final class TrendingRegionStore: ObservableObject {
 
     func displayName(for code: String) -> String {
         Self.supported.first(where: { $0.code == code })?.name ?? code
+    }
+
+    /// YouTube video category IDs that work with `chart=mostPopular`. Not all
+    /// of YouTube's ~30 categories are eligible — these are the ones that
+    /// consistently return a chart across major regions. Empty `id` = "All".
+    static let categories: [Category] = [
+        Category(id: "",   label: "All",            emoji: "✨"),
+        Category(id: "10", label: "Music",          emoji: "🎵"),
+        Category(id: "20", label: "Gaming",         emoji: "🎮"),
+        Category(id: "24", label: "Entertainment",  emoji: "🎬"),
+        Category(id: "25", label: "News",           emoji: "📰"),
+        Category(id: "17", label: "Sports",         emoji: "⚽"),
+        Category(id: "23", label: "Comedy",         emoji: "😂"),
+        Category(id: "28", label: "Science & Tech", emoji: "🔬"),
+    ]
+
+    struct Category: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let emoji: String
+    }
+
+    func categoryLabel(for id: String) -> String {
+        Self.categories.first(where: { $0.id == id })?.label ?? "All"
     }
 }

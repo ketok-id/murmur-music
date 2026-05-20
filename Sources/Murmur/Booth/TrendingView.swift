@@ -19,7 +19,7 @@ struct TrendingView: View {
             Divider().background(Color.white.opacity(0.06))
             content
         }
-        .task(id: regionStore.regionCode) {
+        .task(id: "\(regionStore.regionCode)|\(regionStore.categoryId)") {
             await load()
         }
     }
@@ -34,6 +34,7 @@ struct TrendingView: View {
                 .tracking(1.2)
                 .foregroundColor(.white.opacity(0.7))
             regionMenu
+            categoryMenu
             Spacer()
             Button(action: { Task { await load() } }) {
                 Image(systemName: "arrow.clockwise")
@@ -74,6 +75,35 @@ struct TrendingView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Change region: \(regionStore.displayName(for: regionStore.regionCode))")
+    }
+
+    private var categoryMenu: some View {
+        Menu {
+            ForEach(TrendingRegionStore.categories) { cat in
+                Button(action: { regionStore.categoryId = cat.id }) {
+                    if regionStore.categoryId == cat.id {
+                        Label("\(cat.emoji) \(cat.label)", systemImage: "checkmark")
+                    } else {
+                        Text("\(cat.emoji) \(cat.label)")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                let active = TrendingRegionStore.categories.first(where: { $0.id == regionStore.categoryId })
+                    ?? TrendingRegionStore.categories[0]
+                Text("\(active.emoji) \(active.label)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Filter by category")
     }
 
     @ViewBuilder
@@ -213,7 +243,8 @@ struct TrendingView: View {
         do {
             results = try await YouTubeSearchAPI.fetchTrending(
                 regionCode: regionStore.regionCode,
-                apiKey: apiKeyStore.youtubeKey
+                apiKey: apiKeyStore.youtubeKey,
+                categoryId: regionStore.categoryId
             )
         } catch let err as YouTubeSearchAPI.SearchError {
             errorMessage = err.errorDescription

@@ -246,19 +246,27 @@ enum YouTubeSearchAPI {
     /// Fetch YouTube's "most popular" chart for a region. Costs 1 quota unit and
     /// returns durations + categoryIds inline, so no follow-up `fetchVideoDetails`
     /// call is needed.
-    static func fetchTrending(regionCode: String, apiKey: String, maxResults: Int = 25) async throws -> [YTSearchResult] {
+    ///
+    /// Pass a non-empty `categoryId` (e.g. "10" for Music, "20" for Gaming) to
+    /// restrict the chart. Many region/category combinations return empty —
+    /// YouTube only publishes a chart where there's enough localized data.
+    static func fetchTrending(regionCode: String, apiKey: String, categoryId: String = "", maxResults: Int = 25) async throws -> [YTSearchResult] {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
         let region = regionCode.isEmpty ? "US" : regionCode.uppercased()
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/videos")!
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "part", value: "snippet,contentDetails"),
             URLQueryItem(name: "chart", value: "mostPopular"),
             URLQueryItem(name: "regionCode", value: region),
             URLQueryItem(name: "maxResults", value: String(maxResults)),
             URLQueryItem(name: "key", value: trimmedKey),
         ]
+        if !categoryId.isEmpty {
+            items.append(URLQueryItem(name: "videoCategoryId", value: categoryId))
+        }
+        components.queryItems = items
         guard let url = components.url else { throw SearchError.network("Failed to build URL") }
 
         let (data, response) = try await safeGET(url: url)

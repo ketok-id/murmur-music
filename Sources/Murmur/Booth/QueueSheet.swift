@@ -6,12 +6,15 @@ struct QueueSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var queue = PlaybackQueue.shared
+    @ObservedObject private var trending = TrendingRegionStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().background(Color.white.opacity(0.08))
             content
+            Divider().background(Color.white.opacity(0.06))
+            footer
         }
         .frame(width: 420, height: 500)
         .background(Color(white: 0.05))
@@ -69,6 +72,32 @@ struct QueueSheet: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
         }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Toggle(isOn: $trending.autoFillFromTrending) {
+                HStack(spacing: 5) {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange.opacity(0.75))
+                    Text("Auto-fill from Trending")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help("When the queue runs out, automatically refill with trending videos for your region/category.")
+            Spacer()
+            if trending.autoFillFromTrending {
+                Text("\(trending.regionCode) · \(trending.categoryLabel(for: trending.categoryId))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     private func row(_ item: QueueItem) -> some View {

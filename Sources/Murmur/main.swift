@@ -598,11 +598,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 PlayedVideoHistoryStore.shared.updatePosition(videoID: videoID, seconds: seconds)
             }
 
-        // Queue auto-advance.
+        // Queue auto-advance. If the queue is empty AND the user has opted
+        // into auto-fill, fetch trending and refill the queue, then advance.
         controller.onEnded = { [weak self] in
             guard let self = self else { return }
             if let next = PlaybackQueue.shared.popNext() {
                 _ = self.controller.load(input: next.videoID)
+                return
+            }
+            guard TrendingRegionStore.shared.autoFillFromTrending else { return }
+            let finishedID = self.controller.currentVideoID
+            Task { @MainActor in
+                await PlaybackQueue.shared.refillFromTrending(excluding: finishedID)
+                if let next = PlaybackQueue.shared.popNext() {
+                    _ = self.controller.load(input: next.videoID)
+                }
             }
         }
     }

@@ -78,6 +78,38 @@ final class PlaybackQueue: ObservableObject {
         return item
     }
 
+    /// Refill the queue from the YouTube "most popular" chart, respecting the
+    /// user's selected region + category. Skips the just-finished video and
+    /// anything already present in the queue. Silent no-op if no API key is set
+    /// or the network call fails — auto-advance is best-effort.
+    @MainActor
+    func refillFromTrending(excluding excludeVideoID: String = "", maxItems: Int = 5) async {
+        let key = APIKeyStore.shared.youtubeKey
+        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let store = TrendingRegionStore.shared
+        let existing = Set(items.map { $0.videoID })
+        do {
+            let results = try await YouTubeSearchAPI.fetchTrending(
+                regionCode: store.regionCode,
+                apiKey: key,
+                categoryId: store.categoryId,
+                maxResults: 25
+            )
+            let fresh = results.filter {
+                $0.videoID != excludeVideoID && !existing.contains($0.videoID)
+            }
+            for result in fresh.prefix(maxItems) {
+                enqueue(
+                    videoID: result.videoID,
+                    title: result.title,
+                    thumbnailURL: result.thumbnailURL?.absoluteString ?? ""
+                )
+            }
+        } catch {
+            return
+        }
+    }
+
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: key),
               let list = try? JSONDecoder().decode([QueueItem].self, from: data) else { return }
