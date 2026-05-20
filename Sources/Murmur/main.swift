@@ -65,6 +65,12 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var title: String = "YouTube Live Stream"
     @Published var status: String = "Loading…"
     @Published private(set) var currentVideoID: String = kDefaultVideoID
+    /// Current YouTube playlist ID (the `list=PL…` parameter), empty if not playing a playlist.
+    /// When set, the iframe is loaded with `&list=…` so YouTube auto-advances to the next entry.
+    @Published private(set) var currentPlaylistID: String = ""
+    /// Non-empty when the loaded `list=…` looks like a YouTube Mix/Radio (`RD…`).
+    /// These are auto-generated and the IFrame embed often refuses to auto-advance them.
+    @Published var mixHint: String = ""
     /// Current playhead in seconds, updated from iframe infoDelivery events.
     @Published var currentTime: Double = 0
     /// Speed multiplier; 1.0 = normal. YouTube supports 0.25 – 2.0.
@@ -96,13 +102,20 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         loadPlayer(videoID: kDefaultVideoID)
     }
 
-    func loadPlayer(videoID: String) {
+    func loadPlayer(videoID: String, playlistID: String = "") {
         // Look up resume position from history. Skip if too small (just
         // started) or near the end (don't resume the last few seconds).
-        let savedPosition = PlayedVideoHistoryStore.shared.entries
-            .first(where: { $0.videoID == videoID })?
-            .lastPosition ?? 0
+        // Skipped entirely when playing a playlist — YouTube manages the cursor.
+        let savedPosition: Double = {
+            guard playlistID.isEmpty, !videoID.isEmpty else { return 0 }
+            return PlayedVideoHistoryStore.shared.entries
+                .first(where: { $0.videoID == videoID })?
+                .lastPosition ?? 0
+        }()
         let startSeconds: Int = (savedPosition > 5) ? Int(savedPosition) : 0
+        let embedSrc = Self.buildEmbedSrc(videoID: videoID,
+                                          playlistID: playlistID,
+                                          startSeconds: startSeconds)
         // We embed the official YouTube embed page in an iframe and talk to it via
         // the IFrame API's postMessage protocol. This avoids origin/baseURL issues
         // that plague using the YT.Player JS constructor inside loadHTMLString.
@@ -126,7 +139,7 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         </head><body>
         <div id="wrap"></div>
         <iframe id="player"
-          src="https://www.youtube-nocookie.com/embed/\(videoID)?enablejsapi=1&autoplay=1&controls=0&playsinline=1&modestbranding=1&rel=0&fs=0&iv_load_policy=3&origin=https://www.youtube-nocookie.com&start=\(startSeconds)"
+          src="\(embedSrc)"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowfullscreen></iframe>
         <div id="cover"></div>
@@ -180,7 +193,16 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
                 if (d.info.playerState === 1) hideCover();
                 notify('state', {state:d.info.playerState});
               }
-              if (d.info.videoData && d.info.videoData.title) notify('title', {title:d.info.videoData.title});
+              if (d.info.videoData) {
+                if (d.info.videoData.title) notify('title', {title:d.info.videoData.title});
+                // When playing a YouTube playlist, video_id changes as it auto-advances.
+                // Notify only on transition so we don't spam Swift on every infoDelivery tick.
+                var vid = d.info.videoData.video_id;
+                if (vid && vid !== window.__lastVideoId) {
+                  window.__lastVideoId = vid;
+                  notify('video', {videoId: vid});
+                }
+              }
               if (typeof d.info.currentTime === 'number') notify('time', {time: d.info.currentTime});
             } else if (d.event === 'onError') {
               notify('error', {code: d.info});
@@ -192,19 +214,68 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         onWillLoadStream?()
         webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com/"))
         currentVideoID = videoID
+        currentPlaylistID = playlistID
     }
 
-    /// Accepts a plain video ID, or any youtube.com / youtu.be URL, extracts the
-    /// 11-char video ID, and loads it. Returns true if it could parse an ID.
+    private static func buildEmbedSrc(videoID: String, playlistID: String, startSeconds: Int) -> String {
+        let path = videoID.isEmpty
+            ? "https://www.youtube-nocookie.com/embed/videoseries"
+            : "https://www.youtube-nocookie.com/embed/\(videoID)"
+        var params = [
+            "enablejsapi=1",
+            "autoplay=1",
+            "controls=0",
+            "playsinline=1",
+            "modestbranding=1",
+            "rel=0",
+            "fs=0",
+            "iv_load_policy=3",
+            "origin=https://www.youtube-nocookie.com",
+        ]
+        if !playlistID.isEmpty {
+            params.append("list=\(playlistID)")
+            // listType is required for `embed/videoseries`; harmless when starting at a specific video.
+            if videoID.isEmpty { params.append("listType=playlist") }
+        } else {
+            params.append("start=\(startSeconds)")
+        }
+        return "\(path)?\(params.joined(separator: "&"))"
+    }
+
+    /// Accepts a plain video ID, or any youtube.com / youtu.be URL. Extracts the
+    /// 11-char video ID and (if present) the `list=…` playlist ID, then loads them.
+    /// Returns true if either piece could be parsed.
     @discardableResult
     func load(input: String) -> Bool {
-        guard let id = PlayerController.extractYouTubeID(input) else {
+        let videoID = PlayerController.extractYouTubeID(input) ?? ""
+        let playlistID = PlayerController.extractPlaylistID(input) ?? ""
+        if videoID.isEmpty && playlistID.isEmpty {
             status = "Couldn't read a video ID from that input"
             return false
         }
         isReady = false; isPlaying = false; status = "Loading…"
-        loadPlayer(videoID: id)
+        mixHint = PlayerController.isMixPlaylistID(playlistID)
+            ? "YouTube Mix — may not auto-advance"
+            : ""
+        loadPlayer(videoID: videoID, playlistID: playlistID)
         return true
+    }
+
+    /// YouTube Mix/Radio playlists start with `RD` (e.g. `RDo97DaNnADeM`, `RDMM…`, `RDCLAK…`).
+    /// They're server-generated and the IFrame embed frequently won't auto-advance them.
+    static func isMixPlaylistID(_ id: String) -> Bool {
+        id.hasPrefix("RD")
+    }
+
+    /// Pulls the `list=…` playlist ID out of any YouTube URL. Returns nil for
+    /// plain video-ID strings or URLs without a `list` query parameter.
+    static func extractPlaylistID(_ raw: String) -> String? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty, let url = URL(string: s),
+              let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let value = comp.queryItems?.first(where: { $0.name == "list" })?.value,
+              !value.isEmpty else { return nil }
+        return value
     }
 
     static func extractYouTubeID(_ raw: String) -> String? {
@@ -232,10 +303,18 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     func toggle(){ isPlaying ? pause() : play() }
     func setVolume(_ v: Int) { webView.evaluateJavaScript("window.ytCmd && ytCmd('setVolume', [\(v)]);", completionHandler: nil) }
     func unmute() { webView.evaluateJavaScript("window.ytCmd && ytCmd('unMute');", completionHandler: nil) }
-    func reload() { isReady = false; isPlaying = false; status = "Reloading…"; loadPlayer(videoID: currentVideoID) }
+    func reload() { isReady = false; isPlaying = false; status = "Reloading…"; loadPlayer(videoID: currentVideoID, playlistID: currentPlaylistID) }
 
     func setPlaybackRate(_ rate: Double) {
         playbackRate = rate
+    }
+
+    /// Called when YouTube reports the currently-playing video has changed.
+    /// Mainly fires during playlist playback when the player auto-advances.
+    fileprivate func updateCurrentVideoID(_ id: String) {
+        guard !id.isEmpty, id != currentVideoID else { return }
+        currentVideoID = id
+        currentTime = 0
     }
 
     private func applyPlaybackRate() {
@@ -292,6 +371,8 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                 }
             case "title":
                 if let t = body["title"] as? String, !t.isEmpty { c.title = t }
+            case "video":
+                if let id = body["videoId"] as? String { c.updateCurrentVideoID(id) }
             case "time":
                 if let t = body["time"] as? Double { c.currentTime = t }
             case "error":
