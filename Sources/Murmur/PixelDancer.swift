@@ -13,6 +13,7 @@ struct CassetteTape: View {
     @ObservedObject private var playlist = PlaylistStore.shared
     @ObservedObject private var queue = PlaybackQueue.shared
     @ObservedObject private var trending = TrendingRegionStore.shared
+    @ObservedObject private var userPlaylists = UserPlaylistsStore.shared
 
     private static let onColor   = Color(red: 0.96, green: 0.65, blue: 0.45)   // peach (playing)
     private static let idleColor = Color(red: 0.91, green: 0.87, blue: 0.78)   // cream (paused)
@@ -27,11 +28,72 @@ struct CassetteTape: View {
                         draw(in: ctx, size: size, time: context.date.timeIntervalSinceReferenceDate)
                     }
                 }
+                labelOverlay(geo: geo)
                 transportControls(geo: geo)
             }
         }
         .aspectRatio(2.4, contentMode: .fit)
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Cassette label (title + context)
+
+    /// Overlay positioned inside the cassette's drawn label rectangle. Houses
+    /// the now-playing title (marquee'd when overflowing) and an optional
+    /// context line (playlist name + index). Geometry mirrors the rect drawn
+    /// in `draw(in:size:time:)` so they stay aligned at any size.
+    private func labelOverlay(geo: GeometryProxy) -> some View {
+        let inset: CGFloat = 1.5
+        let bodyWidth = geo.size.width - inset * 2
+        let bodyHeight = geo.size.height - inset * 2
+        let labelMinX = inset + 10
+        let labelMinY = inset + 8
+        let labelWidth = bodyWidth - 20
+        let labelHeight = bodyHeight * 0.28
+        let textPad: CGFloat = 5
+        let titleColor = controller.isPlaying ? Self.onColor : Self.idleColor
+
+        return VStack(alignment: .leading, spacing: 1) {
+            MarqueeText(
+                text: displayTitle,
+                font: .system(size: max(8, labelHeight * 0.32), weight: .semibold, design: .monospaced),
+                foregroundColor: titleColor
+            )
+            if let sub = subtitleText {
+                Text(sub)
+                    .font(.system(size: max(7, labelHeight * 0.22), weight: .regular, design: .monospaced))
+                    .foregroundColor(Self.dimColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(width: labelWidth - textPad * 2,
+               height: labelHeight - textPad,
+               alignment: .leading)
+        .position(x: labelMinX + labelWidth / 2,
+                  y: labelMinY + labelHeight / 2)
+    }
+
+    private var displayTitle: String {
+        let t = controller.title.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? "Murmur" : t
+    }
+
+    private var subtitleText: String? {
+        if userPlaylists.hasActivePlaylist,
+           let p = userPlaylists.activePlaylist,
+           let idx = userPlaylists.activeIndex {
+            return "\(p.name) · \(idx + 1)/\(p.items.count)"
+        }
+        if playlist.hasActivePlaylist {
+            let total = playlist.items.count
+            if let i = playlist.currentIndex {
+                return "playlist · \(i + 1)/\(total)"
+            }
+            return "playlist · \(total) tracks"
+        }
+        return nil
     }
 
     // MARK: - Transport controls overlay
@@ -106,18 +168,15 @@ struct CassetteTape: View {
                           height: size.height - inset * 2)
         ctx.stroke(Path(roundedRect: body, cornerRadius: 8), with: .color(color), lineWidth: 1.6)
 
-        // Top label area — outline + two ruling lines
+        // Top label area — outline only; the live title + context lines are
+        // rendered as a SwiftUI overlay on top (`labelOverlay`), aligned to
+        // the same rect, so they replace what used to be hand-drawn ruling
+        // lines and feel like writing on a real cassette label.
         let labelRect = CGRect(
             x: body.minX + 10, y: body.minY + 8,
             width: body.width - 20, height: body.height * 0.28
         )
         ctx.stroke(Path(roundedRect: labelRect, cornerRadius: 2), with: .color(dim), lineWidth: 1)
-        let line1 = labelRect.minY + labelRect.height * 0.42
-        let line2 = labelRect.minY + labelRect.height * 0.74
-        ctx.stroke(linePath(x1: labelRect.minX + 4, y1: line1, x2: labelRect.maxX - 4, y2: line1),
-                   with: .color(dim), lineWidth: 0.7)
-        ctx.stroke(linePath(x1: labelRect.minX + 4, y1: line2, x2: labelRect.maxX - 16, y2: line2),
-                   with: .color(dim), lineWidth: 0.7)
 
         // Reels
         let reelRadius = body.height * 0.20

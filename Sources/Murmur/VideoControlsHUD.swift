@@ -6,7 +6,7 @@ import AppKit
 /// NSHostingView; this SwiftUI view paints only the controls themselves.
 struct VideoControlsHUD: View {
     @ObservedObject var controller: PlayerController
-    var onClose: () -> Void
+    @ObservedObject var videoWindow: VideoWindowController
 
     @State private var draggingScrubber: Bool = false
     @State private var scrubValue: Double = 0
@@ -23,6 +23,7 @@ struct VideoControlsHUD: View {
                 scrubber
                 timeLabel(remaining, monospaced: true, scale: scale)
                 volumeControl(scale: scale)
+                pinButton(scale: scale)
                 closeButton(scale: scale)
             }
             .padding(.horizontal, 14 * scale)
@@ -94,8 +95,22 @@ struct VideoControlsHUD: View {
         }
     }
 
+    private func pinButton(scale: CGFloat) -> some View {
+        Button(action: { videoWindow.togglePinned() }) {
+            Image(systemName: videoWindow.isPinned ? "pin.fill" : "pin")
+                .rotationEffect(.degrees(videoWindow.isPinned ? 0 : 45))
+                .font(.system(size: 12 * scale, weight: .medium))
+                .frame(width: 22 * scale, height: 22 * scale)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(videoWindow.isPinned
+              ? "Pinned: follows you across Spaces — click to unpin"
+              : "Pin to all Spaces")
+    }
+
     private func closeButton(scale: CGFloat) -> some View {
-        Button(action: onClose) {
+        Button(action: { videoWindow.setVisible(false) }) {
             Image(systemName: "xmark")
                 .font(.system(size: 11 * scale, weight: .bold))
                 .frame(width: 22 * scale, height: 22 * scale)

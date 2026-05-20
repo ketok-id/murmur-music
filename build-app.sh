@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Murmur"
 BUNDLE_ID="local.murmur.app"
-VERSION="2026.05.20.3"
+VERSION="2026.05.20.4"
 DIST_DIR="dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 
@@ -66,6 +66,14 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>$BUNDLE_ID.deeplink</string>
+      <key>CFBundleURLSchemes</key>
+      <array><string>murmur</string></array>
+    </dict>
+  </array>
 </dict></plist>
 PLIST
 

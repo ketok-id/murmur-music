@@ -374,6 +374,12 @@ struct YouTubeSearchSheet: View {
                         thumbnailURL: entry.thumbnailURL?.absoluteString ?? ""
                     )
                 }
+                Divider()
+                addToPlaylistMenuItems(
+                    videoID: entry.videoID,
+                    title: entry.title,
+                    thumbnailURL: entry.thumbnailURL?.absoluteString ?? ""
+                )
             }
 
             Button(action: { played.remove(videoID: entry.videoID) }) {

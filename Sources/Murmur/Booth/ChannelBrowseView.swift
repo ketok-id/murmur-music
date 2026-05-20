@@ -143,6 +143,12 @@ struct ChannelBrowseView: View {
                     thumbnailURL: video.thumbnailURL?.absoluteString ?? ""
                 )
             }
+            Divider()
+            addToPlaylistMenuItems(
+                videoID: video.videoID,
+                title: video.title,
+                thumbnailURL: video.thumbnailURL?.absoluteString ?? ""
+            )
         }
     }
 

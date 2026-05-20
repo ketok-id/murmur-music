@@ -131,9 +131,10 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
           /* Block mouse so YouTube's title/share/Watch-on-YouTube overlays never appear on hover.
              All controls are driven from the Swift side, so the iframe never needs to be clicked. */
           iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;pointer-events:none}
-          /* Opaque black cover hides YouTube's pre-play poster (thumbnail+title+big play button)
-             plus the channel/branding overlay that flashes briefly on first frame.
-             Removed a beat after playback starts. pointer-events:none keeps window dragging alive. */
+          /* Opaque black cover hides YouTube's pre-play poster (thumbnail+title+big play button),
+             the channel/branding overlay that flashes briefly on first frame, AND YouTube's
+             paused-state overlay (Topic-channel "now playing" card + center prev/play/next pills).
+             Visible whenever player state is not Playing. pointer-events:none keeps window dragging alive. */
           #cover{position:absolute;inset:0;background:#000;z-index:10;pointer-events:none;
                  transition:opacity .6s linear}
           #cover.hidden{opacity:0}
@@ -184,16 +185,25 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
             }, 150);
           });
           var cover = document.getElementById('cover');
-          var coverDismissed = false;
+          var initialHideDone = false;
+          var coverShouldShow = true;
           var hideCover = function(){
-            if (!cover || coverDismissed) return;
-            coverDismissed = true;
-            // Wait past YouTube's startup channel/branding overlay, then fade.
-            setTimeout(function(){
-              if (!cover) return;
+            coverShouldShow = false;
+            if (!cover) return;
+            if (initialHideDone) {
               cover.classList.add('hidden');
-              setTimeout(function(){ if (cover && cover.parentNode) cover.parentNode.removeChild(cover); }, 700);
+              return;
+            }
+            initialHideDone = true;
+            // First hide waits past YouTube's startup channel/branding overlay before fading.
+            // Subsequent hides (resume from pause) are immediate.
+            setTimeout(function(){
+              if (cover && !coverShouldShow) cover.classList.add('hidden');
             }, 1500);
+          };
+          var showCover = function(){
+            coverShouldShow = true;
+            if (cover) cover.classList.remove('hidden');
           };
           window.addEventListener('message', function(e){
             if (typeof e.data !== 'string') return;
@@ -205,10 +215,12 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
               notify('ready');
             } else if (d.event === 'onStateChange') {
               if (d.info === 1) hideCover();
+              else if (d.info !== 3) showCover();
               notify('state', {state: d.info});
             } else if (d.event === 'infoDelivery' && d.info) {
               if (typeof d.info.playerState !== 'undefined') {
                 if (d.info.playerState === 1) hideCover();
+                else if (d.info.playerState !== 3) showCover();
                 notify('state', {state:d.info.playerState});
               }
               if (d.info.videoData) {
@@ -356,8 +368,10 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         webView.evaluateJavaScript("window.ytCmd && ytCmd('seekTo', [\(clamped), true]);", completionHandler: nil)
     }
 
-    /// Advance to the next track. Priority: active playlist → queue → trending
-    /// auto-fill (if enabled). Matches the onEnded auto-advance flow.
+    /// Advance to the next track. Priority: active YT playlist → active user
+    /// playlist → queue → trending auto-fill (if enabled). When a user playlist
+    /// is active we stop at the end of the list — no fall-through to queue
+    /// or trending, that's the explicit-curation contract.
     func playNext() {
         let playlist = PlaylistStore.shared
         if playlist.hasActivePlaylist,
@@ -365,6 +379,12 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
            idx + 1 < playlist.items.count {
             let next = playlist.items[idx + 1]
             _ = load(input: "https://www.youtube.com/watch?v=\(next.videoID)&list=\(playlist.playlistID)")
+            return
+        }
+        if UserPlaylistsStore.shared.hasActivePlaylist {
+            if let next = UserPlaylistsStore.shared.nextItem() {
+                _ = load(input: next.videoID)
+            }
             return
         }
         if let next = PlaybackQueue.shared.popNext() {
@@ -381,15 +401,20 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         }
     }
 
-    /// Step back one track. Only meaningful when a playlist is loaded — we
-    /// don't keep a play history for ad-hoc videos.
+    /// Step back one track. Honors the active YT playlist first, then the
+    /// active user playlist. Ad-hoc videos have no history to step back into.
     func playPrev() {
         let playlist = PlaylistStore.shared
-        guard playlist.hasActivePlaylist,
-              let idx = playlist.currentIndex,
-              idx > 0 else { return }
-        let prev = playlist.items[idx - 1]
-        _ = load(input: "https://www.youtube.com/watch?v=\(prev.videoID)&list=\(playlist.playlistID)")
+        if playlist.hasActivePlaylist,
+           let idx = playlist.currentIndex,
+           idx > 0 {
+            let prev = playlist.items[idx - 1]
+            _ = load(input: "https://www.youtube.com/watch?v=\(prev.videoID)&list=\(playlist.playlistID)")
+            return
+        }
+        if let prev = UserPlaylistsStore.shared.previousItem() {
+            _ = load(input: prev.videoID)
+        }
     }
     func reload() { isReady = false; isPlaying = false; status = "Reloading…"; loadPlayer(videoID: currentVideoID, playlistID: currentPlaylistID) }
 
@@ -516,6 +541,12 @@ final class WindowDragOverlay: NSView {
 // content to 16:9 so the YouTube iframe never letterboxes.
 final class VideoWindowController: NSObject, ObservableObject, NSWindowDelegate {
     @Published var isVisible: Bool = false
+    /// When true, the window is set to `.canJoinAllSpaces` so it stays visible
+    /// as the user switches Spaces (Mission Control desktops). Default off so
+    /// the window behaves like a normal floating panel; persisted across
+    /// launches under `youtube-audio-widget.videoWindow.pinned`.
+    @Published private(set) var isPinned: Bool = false
+    private static let pinnedDefaultsKey = "youtube-audio-widget.videoWindow.pinned"
     let window: NSWindow
     private var savedFrame: NSRect?
     private let loadingMask: NSView
@@ -582,10 +613,15 @@ final class VideoWindowController: NSObject, ObservableObject, NSWindowDelegate 
         super.init()
         window.delegate = self
 
-        // Mount the SwiftUI HUD inside the visual-effect container.
-        let hudView = VideoControlsHUD(controller: controller) { [weak self] in
-            self?.setVisible(false)
-        }
+        // Restore pin preference (default off if unset) and apply to the window
+        // so .canJoinAllSpaces is in place before the user ever toggles video on.
+        isPinned = UserDefaults.standard.bool(forKey: Self.pinnedDefaultsKey)
+        applyCollectionBehavior()
+
+        // Mount the SwiftUI HUD inside the visual-effect container. The HUD
+        // holds an @ObservedObject reference to self so its pin button stays
+        // in sync with `isPinned` and its close button calls `setVisible(false)`.
+        let hudView = VideoControlsHUD(controller: controller, videoWindow: self)
         let hosting = NSHostingView(rootView: hudView)
         hosting.frame = hudContainer.bounds
         hosting.autoresizingMask = [.width, .height]
@@ -662,6 +698,27 @@ final class VideoWindowController: NSObject, ObservableObject, NSWindowDelegate 
 
     func toggle() { setVisible(!isVisible) }
 
+    func togglePinned() { setPinned(!isPinned) }
+
+    func setPinned(_ pinned: Bool) {
+        guard pinned != isPinned else { return }
+        isPinned = pinned
+        UserDefaults.standard.set(pinned, forKey: Self.pinnedDefaultsKey)
+        applyCollectionBehavior()
+    }
+
+    /// Pinned: window joins every Space and stays put when the user switches
+    /// desktops via Mission Control (and follows into full-screen apps via
+    /// `.fullScreenAuxiliary`). Unpinned: default behavior — visible only on
+    /// the Space it was created on.
+    private func applyCollectionBehavior() {
+        if isPinned {
+            window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        } else {
+            window.collectionBehavior = [.fullScreenAuxiliary]
+        }
+    }
+
     func setVisible(_ visible: Bool) {
         guard visible != isVisible else { return }
         isVisible = visible
@@ -737,6 +794,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let queueLauncher = QueueLauncher()
     private var historyCancellable: AnyCancellable?
     private var positionCancellable: AnyCancellable?
+    private var userPlaylistCancellable: AnyCancellable?
+    /// Global event monitor that closes the popover when the user clicks
+    /// outside the Murmur app. We use this because the popover behavior is
+    /// `.applicationDefined` rather than `.transient` — `.transient` interacts
+    /// poorly with SwiftUI Menus (the menu's floating window counts as
+    /// "outside" the popover, causing hover-driven flicker as the popover
+    /// tries to auto-dismiss). `.applicationDefined` keeps the popover stable
+    /// while menus are open; this monitor restores the click-outside-to-close
+    /// behavior the user expects from a menubar app.
+    private var popoverOutsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // 1) Video window — owns the webview. Hidden off-screen by default;
@@ -760,9 +827,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         recordings = RecordingsWindowController()
 
         // 2) Popover — the actual UI, shown only when the menu bar icon is clicked.
+        // `applicationDefined` (not `transient`) — see comment on
+        // `popoverOutsideClickMonitor` for the menu-flicker reason. Close is
+        // driven manually by the menubar-icon toggle and the global click monitor.
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 340, height: 280)
-        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 340, height: 296)
+        popover.behavior = .applicationDefined
         popover.animates = true
         popover.delegate = self
         popover.contentViewController = NSHostingController(
@@ -785,6 +855,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
+
+        // Kick off the GitHub Releases update poller. Best-effort, silent on
+        // failure; surfaces a badge in the popover when a newer tag is found.
+        UpdateChecker.shared.startBackgroundChecks()
 
         // Record videos to history as their titles arrive.
         historyCancellable = controller.$title
@@ -810,10 +884,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 PlayedVideoHistoryStore.shared.updatePosition(videoID: videoID, seconds: seconds)
             }
 
-        // Queue auto-advance. If the queue is empty AND the user has opted
-        // into auto-fill, fetch trending and refill the queue, then advance.
+        // Reconcile the active user playlist cursor when the playing video
+        // changes. This is how "user pasted a different URL" or "user picked
+        // from history" implicitly exits playlist mode — without touching any
+        // of those callsites. The store decides: if the new videoID is in the
+        // active playlist, the cursor moves; otherwise it deactivates.
+        userPlaylistCancellable = controller.$currentVideoID
+            .removeDuplicates()
+            .sink { videoID in
+                UserPlaylistsStore.shared.reconcile(currentVideoID: videoID)
+            }
+
+        // Auto-advance when a track ends. Priority: active user playlist (stops
+        // at end — no fall-through), then queue, then trending refill.
+        // YouTube playlists handle their own internal auto-advance inside the
+        // iframe so they don't appear here.
         controller.onEnded = { [weak self] in
             guard let self = self else { return }
+            if UserPlaylistsStore.shared.hasActivePlaylist {
+                if let next = UserPlaylistsStore.shared.nextItem() {
+                    _ = self.controller.load(input: next.videoID)
+                }
+                return
+            }
             if let next = PlaybackQueue.shared.popNext() {
                 _ = self.controller.load(input: next.videoID)
                 return
@@ -836,7 +929,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
+            installOutsideClickMonitor()
         }
+    }
+
+    /// Install a global mouse-event monitor while the popover is open so a
+    /// click outside the Murmur app closes the popover. `NSEvent`'s "global"
+    /// monitor only fires for events OUTSIDE the current app, so clicks inside
+    /// our popover — including its SwiftUI Menus and sheets — never trigger it.
+    /// This replaces the auto-dismiss `.transient` popover behavior would
+    /// normally provide, without the hover-flicker side effect.
+    private func installOutsideClickMonitor() {
+        guard popoverOutsideClickMonitor == nil else { return }
+        popoverOutsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            self?.popover.performClose(nil)
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let m = popoverOutsideClickMonitor {
+            NSEvent.removeMonitor(m)
+            popoverOutsideClickMonitor = nil
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        removeOutsideClickMonitor()
+    }
+
+    /// Handle `murmur://` deep links registered in Info.plist's `CFBundleURLTypes`.
+    /// Format: `murmur://play?v=<videoID>[&list=<playlistID>][&t=<seconds>]`
+    /// Loads the video into the running app's player; opening a link from the
+    /// outside also wakes the popover so the user can see what just started.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { handleDeepLink(url) }
+    }
+
+    private func handleDeepLink(_ url: URL) {
+        guard url.scheme?.lowercased() == "murmur" else { return }
+        guard let comp = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        // Accept both murmur://play?v=… and murmur://?v=… for compatibility.
+        let action = (comp.host ?? "").lowercased()
+        guard action.isEmpty || action == "play" else { return }
+        let q = comp.queryItems ?? []
+        guard let v = q.first(where: { $0.name == "v" })?.value, !v.isEmpty else { return }
+        let list = q.first(where: { $0.name == "list" })?.value ?? ""
+        // Reuse `controller.load` so the same parse / clear-other-playlist /
+        // history / queue plumbing runs as any other load path.
+        let input: String
+        if !list.isEmpty {
+            input = "https://www.youtube.com/watch?v=\(v)&list=\(list)"
+        } else {
+            input = v
+        }
+        _ = controller.load(input: input)
     }
 
     func applicationWillTerminate(_ n: Notification) {
@@ -864,6 +1012,16 @@ final class RecordingsLauncher: ObservableObject {
 // MARK: - Queue launcher (SwiftUI bridge)
 final class QueueLauncher: ObservableObject {
     @Published var isShowing = false
+    func show() { isShowing = true }
+}
+
+// MARK: - User playlists launcher (SwiftUI bridge)
+// Singleton so the popover header can present the management sheet from
+// anywhere without EnvironmentObject plumbing.
+final class UserPlaylistsLauncher: ObservableObject {
+    static let shared = UserPlaylistsLauncher()
+    @Published var isShowing = false
+    private init() {}
     func show() { isShowing = true }
 }
 

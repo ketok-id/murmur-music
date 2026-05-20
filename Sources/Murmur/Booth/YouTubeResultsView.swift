@@ -159,6 +159,12 @@ struct YouTubeResultsView: View {
                     thumbnailURL: result.thumbnailURL?.absoluteString ?? ""
                 )
             }
+            Divider()
+            addToPlaylistMenuItems(
+                videoID: result.videoID,
+                title: result.title,
+                thumbnailURL: result.thumbnailURL?.absoluteString ?? ""
+            )
         }
     }
 

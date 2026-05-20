@@ -9,6 +9,8 @@ struct ContentView: View {
     @EnvironmentObject var queueLauncher: QueueLauncher
     @ObservedObject private var playbackQueue = PlaybackQueue.shared
     @ObservedObject private var playlistStore = PlaylistStore.shared
+    @ObservedObject private var userPlaylistsLauncher = UserPlaylistsLauncher.shared
+    @ObservedObject private var userPlaylists = UserPlaylistsStore.shared
     @State private var urlInput: String = ""
     @State private var showingAPIKeySheet: Bool = false
     @State private var showingPlaylistSheet: Bool = false
@@ -16,6 +18,7 @@ struct ContentView: View {
     @State private var ytInitialMode: YouTubeSearchSheet.Mode = .videos
     @State private var ytInitialQuery: String = ""
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
+    @ObservedObject private var updateChecker = UpdateChecker.shared
 
     // Cozy pixel-art palette: warm cream on near-black, peach accent for active states.
     private let bg     = Color(red: 0.05, green: 0.05, blue: 0.06)
@@ -34,6 +37,7 @@ struct ContentView: View {
             bg
 
             VStack(alignment: .leading, spacing: rowGap) {
+                wordmark
                 header
                 urlRow
                 dancerRow
@@ -42,7 +46,19 @@ struct ContentView: View {
             }
             .padding(outerPad)
         }
-        .frame(width: 340, height: 280)
+        .frame(width: 340, height: 296)
+    }
+
+    /// Centered "MURMUR" brand mark at the very top of the popover. Tracked
+    /// letters + monospaced weight to match the cassette / pixel-art palette.
+    private var wordmark: some View {
+        HStack(spacing: 0) {
+            Text("MURMUR")
+                .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                .tracking(4)
+                .foregroundColor(fg)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var dancerRow: some View {
@@ -56,33 +72,33 @@ struct ContentView: View {
     // MARK: - Sections
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Text("♪")
-                .foregroundColor(accent)
-            Text("—")
-                .foregroundColor(fgDim)
-            MarqueeText(
-                text: headerLabel,
-                font: .system(size: 11, weight: .medium, design: .monospaced),
-                foregroundColor: fg
+        // Title now lives on the cassette label below. The header is a pure
+        // toolbar: window controls on the left, library indicators clustered
+        // toward the right, settings at the far edge. Leading spacer keeps
+        // the row breathing on small popover widths.
+        HStack(spacing: 6) {
+            // Window controls (primary).
+            headerIconButton(
+                systemName: videoWindow.isVisible ? "tv.fill" : "tv",
+                tint: videoWindow.isVisible ? accent : fgDim,
+                help: videoWindow.isVisible ? "Hide floating video window" : "Show floating video window",
+                action: { videoWindow.toggle() }
             )
-            .layoutPriority(0)
-            Spacer(minLength: 6)
-            Button(action: { videoWindow.toggle() }) {
-                Text(videoWindow.isVisible ? "Video On" : "Video")
-                    .foregroundColor(videoWindow.isVisible ? accent : fgDim)
-            }
-            .buttonStyle(.plain)
-            .help("Show/hide floating video window")
-            Button(action: { controller.reload() }) {
-                Text("Reload").foregroundColor(fgDim)
-            }
-            .buttonStyle(.plain)
-            .help("Reload current stream")
+            headerIconButton(
+                systemName: "arrow.clockwise",
+                tint: fgDim,
+                help: "Reload current stream",
+                action: { controller.reload() }
+            )
+            shareMenu
+
+            Spacer(minLength: 4)
+
+            // Library indicators (counts surface only when there's something to count).
             if playlistStore.hasActivePlaylist {
                 Button(action: { showingPlaylistSheet = true }) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "music.note.list")
+                    HStack(spacing: 3) {
+                        Image(systemName: "play.square.stack.fill")
                         if let i = playlistStore.currentIndex {
                             Text("\(i + 1)/\(playlistStore.items.count)")
                                 .font(.system(size: 9, design: .monospaced))
@@ -94,28 +110,47 @@ struct ContentView: View {
                     .foregroundColor(.cyan.opacity(0.85))
                 }
                 .buttonStyle(.plain)
-                .help("Playlist (Now Playing)")
+                .help("YouTube playlist — \(playlistStore.items.count) tracks")
             }
             Button(action: { queueLauncher.show() }) {
-                if playbackQueue.isEmpty {
+                HStack(spacing: 3) {
                     Image(systemName: "list.bullet")
-                        .foregroundColor(fgDim)
-                } else {
-                    HStack(spacing: 2) {
-                        Image(systemName: "list.bullet")
+                    if !playbackQueue.isEmpty {
                         Text("\(playbackQueue.count)")
+                            .font(.system(size: 9, design: .monospaced))
                     }
-                    .foregroundColor(accent)
                 }
+                .foregroundColor(playbackQueue.isEmpty ? fgDim : accent)
             }
             .buttonStyle(.plain)
-            .help("Playback queue")
-            Button(action: { showingAPIKeySheet = true }) {
-                Image(systemName: "gearshape")
-                    .foregroundColor(apiKeyStore.hasYouTubeKey ? accent : fgDim)
+            .help(playbackQueue.isEmpty
+                  ? "Playback queue (empty)"
+                  : "Playback queue — \(playbackQueue.count) up next")
+            Button(action: { userPlaylistsLauncher.show() }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "music.note.list")
+                    if userPlaylists.hasActivePlaylist,
+                       let idx = userPlaylists.activeIndex,
+                       let p = userPlaylists.activePlaylist {
+                        Text("\(idx + 1)/\(p.items.count)")
+                            .font(.system(size: 9, design: .monospaced))
+                    }
+                }
+                .foregroundColor(userPlaylists.hasActivePlaylist ? accent : fgDim)
             }
             .buttonStyle(.plain)
-            .help(apiKeyStore.hasYouTubeKey ? "YouTube API key configured" : "Configure YouTube API key")
+            .help(userPlaylists.hasActivePlaylist
+                  ? "Playing from \"\(userPlaylists.activePlaylist?.name ?? "")\""
+                  : "My playlists")
+
+            headerSeparator
+
+            headerIconButton(
+                systemName: "gearshape",
+                tint: apiKeyStore.hasYouTubeKey ? accent : fgDim,
+                help: apiKeyStore.hasYouTubeKey ? "YouTube API key configured" : "Configure YouTube API key",
+                action: { showingAPIKeySheet = true }
+            )
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .sheet(isPresented: $showingAPIKeySheet) {
@@ -131,11 +166,131 @@ struct ContentView: View {
                 _ = controller.load(input: videoID)
             }
         }
+        .sheet(isPresented: $userPlaylistsLauncher.isShowing) {
+            UserPlaylistsSheet { videoID in
+                _ = controller.load(input: videoID)
+            }
+        }
     }
 
-    private var headerLabel: String {
+    /// Minimal SF-symbol button used across the header so all action buttons
+    /// share the same hit target + tint behavior. Keeps the call sites short.
+    private func headerIconButton(systemName: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .foregroundColor(tint)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// Thin vertical rule that splits the header into logical clusters:
+    /// window controls / library indicators / app config.
+    private var headerSeparator: some View {
+        Rectangle()
+            .fill(border)
+            .frame(width: 1, height: 11)
+            .padding(.horizontal, 1)
+    }
+
+    /// Share menu for the currently-playing track. `ShareLink` (macOS 13+)
+    /// opens the system share sheet — Messages, Mail, AirDrop, Notes, and any
+    /// installed share extensions. The Murmur-link variant uses the registered
+    /// `murmur://` URL scheme (Info.plist `CFBundleURLTypes`) so recipients
+    /// with Murmur installed open straight into playback. The Copy actions
+    /// are the fast path for chat apps that auto-unfurl YouTube links.
+    private var shareMenu: some View {
+        Menu {
+            ShareLink(item: shareURL,
+                      subject: Text(shareTitle),
+                      message: Text("\(shareTitle)\n\(murmurLink.absoluteString)")) {
+                Label("Share (YouTube link)…", systemImage: "square.and.arrow.up")
+            }
+            ShareLink(item: murmurLink,
+                      subject: Text("Open in Murmur — \(shareTitle)"),
+                      message: Text("\(shareTitle)\nOpen with Murmur:")) {
+                Label("Share Murmur link…", systemImage: "music.note")
+            }
+            Divider()
+            Button {
+                copyToPasteboard(shareURL.absoluteString)
+            } label: {
+                Label("Copy YouTube link", systemImage: "link")
+            }
+            Button {
+                copyToPasteboard(murmurLink.absoluteString)
+            } label: {
+                Label("Copy Murmur link", systemImage: "music.note.list")
+            }
+            Button {
+                copyToPasteboard(shareTitle)
+            } label: {
+                Label("Copy title", systemImage: "text.cursor")
+            }
+            Divider()
+            Button {
+                copyToPasteboard("\(shareTitle)\n\(shareURL.absoluteString)")
+            } label: {
+                Label("Copy title + YouTube link", systemImage: "doc.on.clipboard")
+            }
+            Button {
+                copyToPasteboard("♪ \(shareTitle)\n\(shareURL.absoluteString)\nOpen in Murmur: \(murmurLink.absoluteString)")
+            } label: {
+                Label("Copy rich card", systemImage: "rectangle.on.rectangle")
+            }
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+                .foregroundColor(fgDim)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Share what you're listening to")
+    }
+
+    /// Watch URL for the active video, with `&list=…` appended when a YouTube
+    /// playlist is loaded so the recipient lands in the same playlist context.
+    /// Falls back to the short `youtu.be` form for plain single-video shares.
+    private var shareURL: URL {
+        let videoID = controller.currentVideoID
+        let playlistID = playlistStore.hasActivePlaylist ? playlistStore.playlistID : ""
+        let raw: String
+        if !playlistID.isEmpty {
+            raw = "https://www.youtube.com/watch?v=\(videoID)&list=\(playlistID)"
+        } else {
+            raw = "https://youtu.be/\(videoID)"
+        }
+        // youtu.be / watch URLs above are always well-formed; the `!` is safe.
+        return URL(string: raw)!
+    }
+
+    /// Deep link into the Murmur app for the currently-playing track. Format:
+    /// `murmur://play?v=<id>[&list=<playlistID>]` — handled by
+    /// `AppDelegate.application(_:open:)`. Recipients without Murmur installed
+    /// will get a "no app to open" error from macOS, so this is paired with
+    /// the YouTube link in the rich share variants.
+    private var murmurLink: URL {
+        var comp = URLComponents()
+        comp.scheme = "murmur"
+        comp.host = "play"
+        var items = [URLQueryItem(name: "v", value: controller.currentVideoID)]
+        if playlistStore.hasActivePlaylist {
+            items.append(URLQueryItem(name: "list", value: playlistStore.playlistID))
+        }
+        comp.queryItems = items
+        return comp.url ?? URL(string: "murmur://play?v=\(controller.currentVideoID)")!
+    }
+
+    private var shareTitle: String {
         let title = controller.title.trimmingCharacters(in: .whitespaces)
         return title.isEmpty ? "Murmur" : title
+    }
+
+    private func copyToPasteboard(_ s: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(s, forType: .string)
     }
 
     private var urlRow: some View {
@@ -241,6 +396,7 @@ struct ContentView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
+                versionLabel
                 Button(action: { NSApp.terminate(nil) }) {
                     Text("Quit")
                         .foregroundColor(fgDim)
@@ -250,6 +406,39 @@ struct ContentView: View {
             }
         }
         .font(.system(size: 9, design: .monospaced))
+    }
+
+    /// Version pill — dim "v…" by default; turns into a tappable accent
+    /// badge ("v… → v…  ↑") when `UpdateChecker` finds a newer GitHub release.
+    /// Clicking opens the release page in the default browser.
+    @ViewBuilder
+    private var versionLabel: some View {
+        if updateChecker.hasUpdate, let url = updateChecker.releaseURL,
+           let latest = updateChecker.latestVersion {
+            Button(action: { NSWorkspace.shared.open(url) }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 9))
+                    Text("v\(latest)")
+                }
+                .foregroundColor(accent)
+            }
+            .buttonStyle(.plain)
+            .help("Update available — v\(updateChecker.currentVersion) → v\(latest). Click to view on GitHub.")
+        } else {
+            Text("v\(updateChecker.currentVersion)")
+                .foregroundColor(fgDim)
+                .help(updateChecker.lastCheckedAt.map {
+                    "Murmur v\(updateChecker.currentVersion) — checked for updates \(formatRelativeTime($0))"
+                } ?? "Murmur v\(updateChecker.currentVersion)")
+                .onTapGesture(count: 2) { updateChecker.check() }
+        }
+    }
+
+    private func formatRelativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private var boothButton: some View {
