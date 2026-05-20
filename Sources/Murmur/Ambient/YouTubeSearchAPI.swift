@@ -243,6 +243,50 @@ enum YouTubeSearchAPI {
         }
     }
 
+    /// Fetch YouTube's "most popular" chart for a region. Costs 1 quota unit and
+    /// returns durations + categoryIds inline, so no follow-up `fetchVideoDetails`
+    /// call is needed.
+    static func fetchTrending(regionCode: String, apiKey: String, maxResults: Int = 25) async throws -> [YTSearchResult] {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        let region = regionCode.isEmpty ? "US" : regionCode.uppercased()
+
+        var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/videos")!
+        components.queryItems = [
+            URLQueryItem(name: "part", value: "snippet,contentDetails"),
+            URLQueryItem(name: "chart", value: "mostPopular"),
+            URLQueryItem(name: "regionCode", value: region),
+            URLQueryItem(name: "maxResults", value: String(maxResults)),
+            URLQueryItem(name: "key", value: trimmedKey),
+        ]
+        guard let url = components.url else { throw SearchError.network("Failed to build URL") }
+
+        let (data, response) = try await safeGET(url: url)
+        try checkHTTPStatus(response: response, data: data)
+        QuotaTracker.shared.record(cost: 1)
+
+        do {
+            let decoded = try JSONDecoder().decode(YouTubeVideoDetailsWithSnippetResponse.self, from: data)
+            return decoded.items.map { item -> YTSearchResult in
+                let thumb = item.snippet.thumbnails.medium.flatMap { URL(string: $0.url) }
+                let duration = parseISO8601Duration(item.contentDetails.duration) ?? 0
+                var result = YTSearchResult(
+                    videoID: item.id,
+                    title: item.snippet.title,
+                    channelTitle: item.snippet.channelTitle,
+                    thumbnailURL: thumb
+                )
+                result.duration = duration > 0 ? duration : nil
+                result.categoryHint = VideoCategoryHint.classify(
+                    categoryId: item.snippet.categoryId, title: item.snippet.title
+                )
+                return result
+            }
+        } catch {
+            throw SearchError.decode(error.localizedDescription)
+        }
+    }
+
     static func fetchVideoDetails(ids: [String], apiKey: String) async throws -> [String: (duration: TimeInterval, categoryId: String)] {
         guard !ids.isEmpty else { return [:] }
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -447,6 +491,31 @@ private struct YouTubeVideoDetailsResponse: Decodable {
     }
     struct Snippet: Decodable {
         let categoryId: String
+    }
+    struct ContentDetails: Decodable {
+        let duration: String
+    }
+}
+
+private struct YouTubeVideoDetailsWithSnippetResponse: Decodable {
+    let items: [Item]
+
+    struct Item: Decodable {
+        let id: String
+        let snippet: Snippet
+        let contentDetails: ContentDetails
+    }
+    struct Snippet: Decodable {
+        let title: String
+        let channelTitle: String
+        let categoryId: String
+        let thumbnails: Thumbnails
+    }
+    struct Thumbnails: Decodable {
+        let medium: Thumb?
+    }
+    struct Thumb: Decodable {
+        let url: String
     }
     struct ContentDetails: Decodable {
         let duration: String

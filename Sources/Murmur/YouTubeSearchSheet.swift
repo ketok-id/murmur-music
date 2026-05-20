@@ -21,11 +21,12 @@ struct YouTubeSearchSheet: View {
     @FocusState private var searchFocused: Bool
 
     enum Mode: String, CaseIterable, Identifiable {
-        case videos, channels
+        case videos, trending, channels
         var id: String { rawValue }
         var label: String {
             switch self {
             case .videos: return "Videos"
+            case .trending: return "Trending"
             case .channels: return "Channels"
             }
         }
@@ -39,7 +40,9 @@ struct YouTubeSearchSheet: View {
             header
             Divider().background(Color.white.opacity(0.08))
             modePicker
-            searchRow
+            if mode != .trending {
+                searchRow
+            }
             Divider().background(Color.white.opacity(0.06))
             content
         }
@@ -154,6 +157,12 @@ struct YouTubeSearchSheet: View {
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            case .trending:
+                TrendingView(onPick: { result in
+                    onPick(result.videoID)
+                    dismiss()
+                })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .channels:
                 ChannelResultsView(
                     query: activeQuery,
