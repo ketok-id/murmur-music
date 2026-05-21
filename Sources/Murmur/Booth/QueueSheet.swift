@@ -1,137 +1,93 @@
 import SwiftUI
 
-/// Modal sheet showing the playback queue with reorder/remove/play-now.
+/// Standalone window showing the playback queue with reorder/remove/play-now.
+/// Opened as a side-by-side `Window` scene from the main menu-bar panel
+/// (not a `.sheet`), so it lives in its own NSWindow and the close button
+/// dismisses just this window — not the menu-bar panel behind it. Styled
+/// with the DesignKit primitives so it visually matches the cassette-deck
+/// aesthetic (PopoverShell + PopoverHeader + VideoResultRow + ToggleFooter).
 struct QueueSheet: View {
-    var onPlayNow: (QueueItem) -> Void
-
+    @EnvironmentObject var controller: PlayerController
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var queue = PlaybackQueue.shared
     @ObservedObject private var trending = TrendingRegionStore.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        PopoverShell {
             header
-            Divider().background(Color.white.opacity(0.08))
+        } content: {
             content
-            Divider().background(Color.white.opacity(0.06))
-            footer
+        } footer: {
+            ToggleFooter(
+                systemImage: "flame.fill",
+                label: "Auto-fill from Trending",
+                isOn: $trending.autoFillFromTrending,
+                trailingLabel: "\(trending.regionCode) · \(trending.categoryLabel(for: trending.categoryId))",
+                help: "When the queue runs out, automatically refill with trending videos for your region/category."
+            )
         }
-        .frame(width: 420, height: 500)
-        .background(Color(white: 0.05))
+        .frame(width: 460, height: 520)
+        .padding(8)
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text("Up Next")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(MurmurColor.textPrimary)
             Text("(\(queue.count))")
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundStyle(MurmurColor.textMuted)
             Spacer()
             if !queue.isEmpty {
                 Button("Clear all") { queue.clear() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.red.opacity(0.7))
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.red.opacity(0.75))
             }
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.white.opacity(0.4))
-            }
-            .buttonStyle(.plain)
+            CloseButton(action: { dismiss() })
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .frame(height: 44)
     }
 
     @ViewBuilder
     private var content: some View {
         if queue.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 24))
-                    .foregroundColor(.white.opacity(0.25))
-                Text("Queue is empty.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.45))
-                Text("Right-click a search result → \"Add to queue\".")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.35))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            EmptyStateView(
+                systemImage: "list.bullet",
+                title: "Queue is empty.",
+                helper: "Right-click a search result → Add to queue."
+            )
         } else {
-            List {
-                ForEach(queue.items) { item in
-                    row(item)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
-                .onMove { src, dest in queue.move(from: src, to: dest) }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-        }
-    }
-
-    private var footer: some View {
-        HStack(spacing: 8) {
-            Toggle(isOn: $trending.autoFillFromTrending) {
-                HStack(spacing: 5) {
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.orange.opacity(0.75))
-                    Text("Auto-fill from Trending")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.75))
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .help("When the queue runs out, automatically refill with trending videos for your region/category.")
-            Spacer()
-            if trending.autoFillFromTrending {
-                Text("\(trending.regionCode) · \(trending.categoryLabel(for: trending.categoryId))")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.4))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-
-    private func row(_ item: QueueItem) -> some View {
-        HStack(spacing: 10) {
-            Button(action: { onPlayNow(item); dismiss() }) {
-                HStack(spacing: 10) {
-                    AsyncImage(url: item.thumb) { phase in
-                        switch phase {
-                        case .success(let image): image.resizable().aspectRatio(contentMode: .fill)
-                        default: Rectangle().fill(Color.white.opacity(0.05))
-                        }
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(queue.items) { item in
+                        VideoResultRow(
+                            thumbURL: item.thumb,
+                            title: item.title.isEmpty ? item.videoID : item.title,
+                            subtitle: item.videoID,
+                            onPlay: {
+                                _ = controller.load(input: item.videoID)
+                                dismiss()
+                            },
+                            trailing: AnyView(
+                                Button {
+                                    queue.remove(itemID: item.id)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(MurmurColor.textMuted)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Remove from queue")
+                            )
+                        )
                     }
-                    .frame(width: 64, height: 36)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.06), lineWidth: 0.5))
-
-                    Text(item.title.isEmpty ? item.videoID : item.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Spacer(minLength: 0)
                 }
-                .contentShape(Rectangle())
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
-            .buttonStyle(.plain)
-
-            Button(action: { queue.remove(itemID: item.id) }) {
-                Image(systemName: "xmark.circle")
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.35))
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 3)
     }
 }

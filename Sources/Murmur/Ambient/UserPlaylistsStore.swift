@@ -21,6 +21,12 @@ struct UserPlaylist: Codable, Identifiable, Equatable {
     var name: String
     var items: [UserPlaylistItem]
     let createdAt: Date
+    /// If this local playlist was created by "Save as local" from a YouTube
+    /// playlist (`PL…`), the source ID is recorded here so the PlaylistSheet
+    /// can show the Save button as already-saved instead of letting users
+    /// silently create duplicates. Nil for playlists composed by hand.
+    /// Optional + synthesized Codable means old persisted blobs decode fine.
+    var sourcePlaylistID: String?
 }
 
 /// UserDefaults-backed store of named, locally-composed playlists. Distinct
@@ -32,8 +38,8 @@ final class UserPlaylistsStore: ObservableObject {
     static let shared = UserPlaylistsStore()
 
     @Published private(set) var playlists: [UserPlaylist] = []
-    @Published private(set) var activeID: UUID? = nil
-    @Published private(set) var activeIndex: Int? = nil
+    @Published private(set) var activeID: UUID? = nil { didSet { save() } }
+    @Published private(set) var activeIndex: Int? = nil { didSet { save() } }
 
     private let key = "youtube-audio-widget.userPlaylists.v1"
 
@@ -52,13 +58,27 @@ final class UserPlaylistsStore: ObservableObject {
     // MARK: - Mutations
 
     @discardableResult
-    func create(name: String) -> UUID {
+    func create(name: String, sourcePlaylistID: String? = nil) -> UUID {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayName = cleanName.isEmpty ? "Untitled" : cleanName
-        let p = UserPlaylist(id: UUID(), name: displayName, items: [], createdAt: Date())
+        let p = UserPlaylist(
+            id: UUID(),
+            name: displayName,
+            items: [],
+            createdAt: Date(),
+            sourcePlaylistID: sourcePlaylistID
+        )
         playlists.append(p)
         save()
         return p.id
+    }
+
+    /// Returns the local playlist (if any) that was previously saved from the
+    /// given YouTube playlist ID. Used by PlaylistSheet to render the
+    /// "Save as local" button in its already-saved state.
+    func existingSaved(forSourcePlaylistID id: String) -> UserPlaylist? {
+        guard !id.isEmpty else { return nil }
+        return playlists.first(where: { $0.sourcePlaylistID == id })
     }
 
     func rename(id: UUID, to name: String) {
@@ -176,12 +196,21 @@ final class UserPlaylistsStore: ObservableObject {
         guard let data = UserDefaults.standard.data(forKey: key),
               let blob = try? JSONDecoder().decode(Persisted.self, from: data) else { return }
         playlists = blob.playlists
-        // Don't restore activeID/activeIndex across launches — playback resumes
-        // from the last single video, not back into a playlist mid-cursor.
+        // Restore the active cursor so a relaunch resumes inside the same
+        // user playlist. Guard against stale state: if the playlist was
+        // deleted or the index is past the (possibly shrunk) item list,
+        // drop the cursor — AppDelegate falls back to LastSessionStore.
+        if let id = blob.activeID,
+           let p = playlists.first(where: { $0.id == id }),
+           let idx = blob.activeIndex,
+           idx >= 0, idx < p.items.count {
+            activeID = id
+            activeIndex = idx
+        }
     }
 
     private func save() {
-        let blob = Persisted(playlists: playlists, activeID: nil, activeIndex: nil)
+        let blob = Persisted(playlists: playlists, activeID: activeID, activeIndex: activeIndex)
         if let data = try? JSONEncoder().encode(blob) {
             UserDefaults.standard.set(data, forKey: key)
         }

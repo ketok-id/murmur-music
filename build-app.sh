@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Murmur"
 BUNDLE_ID="local.murmur.app"
-VERSION="2026.05.20.4"
+VERSION="2026.05.21.0"
 DIST_DIR="dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 
@@ -62,7 +62,14 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <!-- LSUIElement=true makes the app launch directly into .accessory
+       activation policy with no Dock icon, ever. The main window is
+       AppKit-hosted (MainWindowController) and shown explicitly by
+       AppDelegate, so SwiftUI's main-scene auto-presentation (which
+       would require .regular) is not relied on. See the READ BEFORE
+       TOUCHING block in AppDelegate.swift. -->
   <key>LSUIElement</key><true/>
+  <key>NSQuitAlwaysKeepsWindows</key><false/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsArbitraryLoads</key><true/></dict>

@@ -1,39 +1,33 @@
 import AppKit
 import SwiftUI
 
-/// Reusable context-menu fragment for "Add to playlist". Shows a submenu with
-/// existing playlists (instant-add) plus "New playlist…" which falls through
-/// to an NSAlert prompt — `NSAlert.runModal` works above presented SwiftUI
-/// sheets, sidestepping the nested-`.sheet(item:)` mess that would otherwise
-/// be required to present a SwiftUI picker on top of `YouTubeSearchSheet`.
+/// Reusable context-menu fragment for "Add to playlist".
+///
+/// **Flat, not nested.** A `Menu("Add to playlist")` inside `.contextMenu`
+/// looks tidy but glitches on hover — the submenu's floating window competes
+/// with the parent context menu's hover tracking, causing visible flicker as
+/// the cursor crosses the boundary. Flat `Button` items in the same menu
+/// don't have that problem, and one click adds — faster than navigating a
+/// submenu. "New playlist…" still falls through to an NSAlert prompt because
+/// `NSAlert.runModal` works above presented SwiftUI sheets.
 @ViewBuilder
 func addToPlaylistMenuItems(videoID: String, title: String, thumbnailURL: String = "") -> some View {
     let playlists = UserPlaylistsStore.shared.playlists
-    if playlists.isEmpty {
-        Button("Add to new playlist…") {
-            promptCreateAndAddToPlaylist(videoID: videoID, title: title, thumbnailURL: thumbnailURL)
+    ForEach(playlists) { p in
+        Button(menuLabel(for: p, videoID: videoID)) {
+            UserPlaylistsStore.shared.addItem(
+                to: p.id, videoID: videoID, title: title, thumbnailURL: thumbnailURL
+            )
         }
-    } else {
-        Menu("Add to playlist") {
-            ForEach(playlists) { p in
-                Button(menuLabel(for: p, videoID: videoID)) {
-                    UserPlaylistsStore.shared.addItem(
-                        to: p.id, videoID: videoID, title: title, thumbnailURL: thumbnailURL
-                    )
-                }
-            }
-            Divider()
-            Button("New playlist…") {
-                promptCreateAndAddToPlaylist(videoID: videoID, title: title, thumbnailURL: thumbnailURL)
-            }
-        }
+    }
+    Button("Add to new playlist…") {
+        promptCreateAndAddToPlaylist(videoID: videoID, title: title, thumbnailURL: thumbnailURL)
     }
 }
 
 private func menuLabel(for playlist: UserPlaylist, videoID: String) -> String {
-    playlist.items.contains(where: { $0.videoID == videoID })
-        ? "\(playlist.name) ✓"
-        : playlist.name
+    let already = playlist.items.contains(where: { $0.videoID == videoID })
+    return already ? "Add to \(playlist.name) ✓" : "Add to \(playlist.name)"
 }
 
 private func promptCreateAndAddToPlaylist(videoID: String, title: String, thumbnailURL: String) {

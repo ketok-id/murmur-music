@@ -12,7 +12,11 @@ final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     private var pendingVolume: Int = 60
 
     /// Owning container window. Hidden offscreen so playback stays alive
-    /// without occupying visible real estate.
+    /// without occupying visible real estate. Stays `orderOut`'d until the
+    /// first `loadAndPlay` — an `orderFront`'d window present at app launch
+    /// suppresses SwiftUI's `WindowGroup` auto-presentation, so the main
+    /// menu-bar window never appears. See the READ-BEFORE-TOUCHING block
+    /// in `AppDelegate.swift`.
     private let window: NSWindow
 
     override init() {
@@ -31,12 +35,15 @@ final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         config.userContentController.add(self, name: "ambientCB")
         window.contentView = webView
         window.isReleasedWhenClosed = false
-        window.orderFront(nil)
     }
 
     /// Load (or swap) the active video and start playing.
     func loadAndPlay(videoID: String) {
         currentVideoID = videoID
+        // Lift the host window into the on-screen list now that we actually
+        // need a real frame for WebKit's media session. Done here (not in
+        // init) so we don't suppress the main WindowGroup auto-open at launch.
+        window.orderFront(nil)
         let html = Self.htmlPage(videoID: videoID, initialVolume: pendingVolume)
         webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube-nocookie.com")!)
     }
@@ -54,6 +61,7 @@ final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandle
     /// Stop and clear the webview to release resources.
     func stop() {
         webView.loadHTMLString("<html><body style='background:#000'></body></html>", baseURL: nil)
+        window.orderOut(nil)
         currentVideoID = nil
     }
 
