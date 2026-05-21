@@ -1,20 +1,20 @@
 import SwiftUI
 
-/// Sheet presented from the main popover for searching YouTube and picking a
-/// result to load on the main player.
+/// Standalone window (Window scene) for searching YouTube and picking a
+/// result to load on the main player. Seed mode / query come from the
+/// `YouTubeSearchState.shared` singleton — the caller mutates it before
+/// invoking `openWindow(id: "search")` so the window opens in the right
+/// mode (videos / trending / channels) with the right initial query.
+/// Replacing the previous `initialMode` / `initialQuery` constructor params
+/// is the cost of using a parameterless `Window` scene; the alternative
+/// (`WindowGroup(id:for:)`) is macOS 14+ only.
 struct YouTubeSearchSheet: View {
-    /// Seed mode when the sheet opens. Default: videos.
-    var initialMode: Mode = .videos
-    /// Seed query when the sheet opens. If non-empty, the sheet activates
-    /// the search immediately on appear.
-    var initialQuery: String = ""
-    /// Called with the chosen result's video ID. Parent should dismiss + load.
-    var onPick: (String) -> Void
-
+    @EnvironmentObject var controller: PlayerController
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
     @ObservedObject private var history = SearchHistoryStore.shared
     @ObservedObject private var played = PlayedVideoHistoryStore.shared
+    @ObservedObject private var seed = YouTubeSearchState.shared
 
     @State private var draftQuery: String = ""
     @State private var activeQuery: String = ""
@@ -36,94 +36,65 @@ struct YouTubeSearchSheet: View {
     @State private var browsing: ChannelFavorite? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        PopoverShell {
             header
-            Divider().background(Color.white.opacity(0.08))
-            modePicker
-            if mode != .trending {
-                searchRow
+        } content: {
+            VStack(spacing: 12) {
+                MurmurSegmentedTabs(tabs: Mode.allCases, selectedTab: $mode)
+                    .onChange(of: mode) { _ in
+                        activeQuery = ""
+                        browsing = nil
+                    }
+
+                if mode != .trending {
+                    PopoverSearchField(
+                        placeholder: mode == .videos
+                            ? "e.g. lofi study, synthwave radio, ocean waves…"
+                            : "Channel name (e.g. lofi girl)",
+                        text: $draftQuery,
+                        onSearch: activate,
+                        canSearch: canSearch
+                    )
+                }
+
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            Divider().background(Color.white.opacity(0.06))
-            content
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
         }
-        .frame(width: 420, height: 540)
-        .background(Color(white: 0.05))
+        .frame(width: 480, height: 560)
+        .padding(8)
         .onAppear {
             searchFocused = true
-            if !initialQuery.isEmpty {
-                mode = initialMode
-                draftQuery = initialQuery
-                activeQuery = initialQuery
+            // Seed mode + query from the shared state set by whoever called
+            // `openWindow(id: "search")`. Clearing the seed on consume so
+            // the next open without an explicit seed lands on default state
+            // (videos mode, empty query) instead of replaying the previous.
+            mode = seed.mode
+            if !seed.query.isEmpty {
+                draftQuery = seed.query
+                activeQuery = seed.query
                 SearchHistoryStore.shared.record(
-                    query: initialQuery,
-                    mode: initialMode == .videos ? .videos : .channels
+                    query: seed.query,
+                    mode: seed.mode == .videos ? .videos : .channels
                 )
             }
-        }
-    }
-
-    private var modePicker: some View {
-        Picker("", selection: $mode) {
-            ForEach(Mode.allCases) { mode in
-                Text(mode.label).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .onChange(of: mode) { _ in
-            activeQuery = ""
-            browsing = nil
+            seed.consume()
         }
     }
 
     private var header: some View {
-        HStack {
-            Text("Search YouTube")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.white)
-            Spacer()
-            Button(action: { dismiss() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.white.opacity(0.4))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    private var searchRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.5))
-            TextField(mode == .videos
-                      ? "e.g. lofi study, synthwave radio, ocean waves…"
-                      : "Channel name (e.g. lofi girl)", text: $draftQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
-                .focused($searchFocused)
-                .onSubmit { activate() }
-            if !draftQuery.isEmpty {
-                Button(action: {
-                    draftQuery = ""
-                    activeQuery = ""
-                }) {
-                    Image(systemName: "xmark.circle")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
-                }
-                .buttonStyle(.plain)
-            }
-            Button("Search") { activate() }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSearch)
+            Text("Search YouTube")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(MurmurColor.textPrimary)
+            Spacer()
+            CloseButton(action: { dismiss() })
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .frame(height: 44)
     }
 
     @ViewBuilder
@@ -134,7 +105,7 @@ struct YouTubeSearchSheet: View {
             ChannelBrowseView(
                 channel: channel,
                 onPickVideo: { video in
-                    onPick(video.videoID)
+                    _ = controller.load(input: video.videoID)
                     dismiss()
                 },
                 onBack: { browsing = nil }
@@ -149,7 +120,7 @@ struct YouTubeSearchSheet: View {
                     YouTubeResultsView(
                         query: activeQuery,
                         onPick: { result in
-                            onPick(result.videoID)
+                            _ = controller.load(input: result.videoID)
                             dismiss()
                         },
                         onBack: { activeQuery = "" },
@@ -159,7 +130,7 @@ struct YouTubeSearchSheet: View {
                 }
             case .trending:
                 TrendingView(onPick: { result in
-                    onPick(result.videoID)
+                    _ = controller.load(input: result.videoID)
                     dismiss()
                 })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -176,18 +147,11 @@ struct YouTubeSearchSheet: View {
     }
 
     private var noKeyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "key.slash")
-                .font(.system(size: 22))
-                .foregroundColor(.white.opacity(0.3))
-            Text("No YouTube API key configured.")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.6))
-            Text("Open the gear in the popover header to add one.")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.45))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyStateView(
+            systemImage: "key.slash",
+            title: "No YouTube API key configured.",
+            helper: "Open the gear in the popover header to add one."
+        )
     }
 
     @ViewBuilder
@@ -198,28 +162,32 @@ struct YouTubeSearchSheet: View {
                     discoverSection
                 }
                 if !played.entries.isEmpty && mode == .videos {
-                    Divider().background(Color.white.opacity(0.04))
+                    sectionDivider
                     recentVideosSection
                 }
                 if !history.entries.isEmpty {
-                    Divider().background(Color.white.opacity(0.04))
+                    sectionDivider
                     recentSearchesSection
                 }
                 if mode == .channels && history.entries.isEmpty && played.entries.isEmpty {
-                    VStack(spacing: 6) {
-                        Image(systemName: "person.crop.circle")
-                            .font(.system(size: 22))
-                            .foregroundColor(.white.opacity(0.25))
-                        Text("Type a channel name, paste a URL, or @handle.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.45))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                    EmptyStateView(
+                        systemImage: "person.crop.circle",
+                        title: "Find a channel.",
+                        helper: "Type a channel name, paste a URL, or @handle."
+                    )
+                    .padding(.vertical, 24)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Hairline between placeholder sections — matches the DesignKit border color.
+    private var sectionDivider: some View {
+        Rectangle()
+            .fill(MurmurColor.border.opacity(0.5))
+            .frame(height: 1)
+            .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -228,7 +196,7 @@ struct YouTubeSearchSheet: View {
             Text("DISCOVER")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(1.5)
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundStyle(MurmurColor.textSecondary)
             Spacer()
         }
         .padding(.horizontal, 14)
@@ -249,7 +217,7 @@ struct YouTubeSearchSheet: View {
             Text("RECENT VIDEOS")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(1.5)
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundStyle(MurmurColor.textSecondary)
             Spacer()
             Button("Clear") { played.clear() }
                 .buttonStyle(.plain)
@@ -274,7 +242,7 @@ struct YouTubeSearchSheet: View {
             Text("RECENT SEARCHES")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .tracking(1.5)
-                .foregroundColor(.white.opacity(0.4))
+                .foregroundStyle(MurmurColor.textSecondary)
             Spacer()
             Button("Clear") { history.clear() }
                 .buttonStyle(.plain)
@@ -325,7 +293,10 @@ struct YouTubeSearchSheet: View {
 
     private func playedRow(_ entry: PlayedVideoEntry) -> some View {
         HStack(spacing: 10) {
-            Button(action: { onPick(entry.videoID); dismiss() }) {
+            Button(action: {
+                _ = controller.load(input: entry.videoID)
+                dismiss()
+            }) {
                 HStack(spacing: 12) {
                     AsyncImage(url: entry.thumbnailURL) { phase in
                         switch phase {

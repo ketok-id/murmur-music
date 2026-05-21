@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Single-line text that scrolls horizontally when it overflows its container.
@@ -9,6 +10,13 @@ import SwiftUI
 /// Sizing: the view adopts the natural line height of `font` (because a
 /// hidden, naturally-sized Text acts as the layout host) and takes whatever
 /// horizontal space the parent grants it.
+///
+/// Animation is paused while no Murmur window is visible to the user —
+/// otherwise Mission Control / Stage Manager would capture the marquee
+/// mid-cycle and show garbled wrap-around text in the overview snapshot.
+/// Driven by `NSApplication.didResignActiveNotification` / `didBecomeActive`
+/// rather than `NSWindow.occlusionState` because the menu-bar panel can
+/// stay "visible" (occlusionState == .visible) while Mission Control is up.
 struct MarqueeText: View {
     let text: String
     var font: Font = .system(size: 12)
@@ -22,6 +30,7 @@ struct MarqueeText: View {
     var foregroundColor: Color = .primary
 
     @State private var textWidth: CGFloat = 0
+    @State private var isAppActive: Bool = NSApp?.isActive ?? true
 
     var body: some View {
         // Hidden host: defines the natural line height. Truncation mode + the
@@ -54,13 +63,26 @@ struct MarqueeText: View {
                     )
                     .onPreferenceChange(WidthKey.self) { textWidth = $0 }
             )
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )) { _ in isAppActive = true }
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didResignActiveNotification
+            )) { _ in isAppActive = false }
     }
 
     @ViewBuilder
     private func overlayContent(containerWidth: CGFloat) -> some View {
         let needsScroll = textWidth > containerWidth + 0.5 && textWidth > 0
         if needsScroll {
-            TimelineView(.animation) { timeline in
+            // `paused: !isAppActive` freezes the timeline (and the marquee
+            // offset) whenever the user isn't focused on Murmur — primarily
+            // while Mission Control / Stage Manager is up. Without this the
+            // overview captures the panel mid-scroll and shows wrap-around
+            // junction text in the snapshot ("...AU + KENAL..." → looks
+            // garbled). On resume, the timeline picks up from its frozen
+            // offset, so a long title doesn't restart on every refocus.
+            TimelineView(.animation(paused: !isAppActive)) { timeline in
                 scrollingBody(now: timeline.date, containerWidth: containerWidth)
             }
         } else {

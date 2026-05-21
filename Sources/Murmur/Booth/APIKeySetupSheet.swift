@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct APIKeySetupSheet: View {
-    @ObservedObject var store: APIKeyStore
+    @ObservedObject private var store = APIKeyStore.shared
     @ObservedObject private var quota = QuotaTracker.shared
     @Environment(\.dismiss) private var dismiss
 
