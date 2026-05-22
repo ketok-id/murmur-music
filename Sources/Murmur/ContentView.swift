@@ -55,7 +55,6 @@ extension Color {
 
 struct ContentView: View {
     @EnvironmentObject var controller: PlayerController
-    @ObservedObject private var favorites = FavoritesStore.shared
     @EnvironmentObject var videoWindow: VideoWindowController
     @EnvironmentObject var booth: BoothLauncher
     @ObservedObject private var playbackQueue = PlaybackQueue.shared
@@ -98,7 +97,6 @@ struct ContentView: View {
                     videoOn: videoWindow.isVisible,
                     onToggleVideo: { videoWindow.toggle() },
                     onReload: { controller.reload() },
-                    onOpenInWindow: { openSheet(id: "main") },
                     share: shareMenu,
                     queueCount: playbackQueue.count,
                     onOpenQueue: { openSheet(id:"queue") },
@@ -110,6 +108,8 @@ struct ContentView: View {
                     ytPlaylistActive: playlistStore.hasActivePlaylist,
                     ytPlaylistLabel: ytPlaylistLabel,
                     onOpenPlaylistSheet: { openSheet(id:"playlist") },
+                    lyricsAvailable: controller.categoryHint == .music,
+                    onOpenLyrics: { openSheet(id:"lyrics") },
                     apiKeyConfigured: apiKeyStore.hasYouTubeKey,
                     onOpenSettings: { openSheet(id:"api-key") }
                 )
@@ -118,7 +118,10 @@ struct ContentView: View {
                     text: $urlInput,
                     onCommit: submitURL,
                     canSubmit: canSubmit,
-                    favoritesMenu: { AnyView(favoritesMenu) },
+                    favoritesButton: NativeFavoritesMenuButton(
+                        controller: controller,
+                        tint: NSColor(MurmurColor.accent)
+                    ),
                     onSearch: {
                         YouTubeSearchState.shared.mode = .videos
                         YouTubeSearchState.shared.query = ""
@@ -277,54 +280,15 @@ struct ContentView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    // MARK: - Favorites + discover menus (unchanged content)
+    // MARK: - Discover catalog
+    //
+    // The favorites + discover dropdown itself is built by
+    // `NativeFavoritesMenuButton` (AppKit-backed `NSMenu`), which reads
+    // this catalog directly.
 
-    @ViewBuilder
-    fileprivate var favoritesMenu: some View {
-        if favorites.items.isEmpty {
-            Text("No favorites yet")
-        } else {
-            ForEach(favorites.items) { fav in
-                Button(menuLabel(name: fav.name, videoID: fav.videoID)) {
-                    controller.load(input: fav.videoID)
-                }
-            }
-            Divider()
-            Menu("Remove") {
-                ForEach(favorites.items) { fav in
-                    Button(fav.name) { favorites.remove(fav) }
-                }
-            }
-        }
-        Divider()
-        Menu("Discover live music") {
-            discoverMenu
-        }
-        Divider()
-        Button("Save current as favorite", action: saveCurrentFavorite)
-            .disabled(controller.currentVideoID.isEmpty)
-    }
-
-    @ViewBuilder
-    private var discoverMenu: some View {
-        ForEach(Self.catalog, id: \.category) { group in
-            Section(group.category) {
-                ForEach(group.items, id: \.videoID) { item in
-                    Button(menuLabel(name: item.name, videoID: item.videoID)) {
-                        controller.load(input: item.videoID)
-                    }
-                }
-            }
-        }
-    }
-
-    private func menuLabel(name: String, videoID: String) -> String {
-        videoID == controller.currentVideoID ? "● \(name)" : "   \(name)"
-    }
-
-    private struct CatalogGroup { let category: String; let items: [CatalogItem] }
-    private struct CatalogItem  { let name: String; let videoID: String }
-    private static let catalog: [CatalogGroup] = [
+    struct CatalogGroup { let category: String; let items: [CatalogItem] }
+    struct CatalogItem  { let name: String; let videoID: String }
+    static let catalog: [CatalogGroup] = [
         CatalogGroup(category: "Featured", items: [
             CatalogItem(name: "Claude FM", videoID: kDefaultVideoID),
         ]),
@@ -370,13 +334,6 @@ struct ContentView: View {
         }
     }
 
-    private func saveCurrentFavorite() {
-        let id = controller.currentVideoID
-        guard !id.isEmpty else { return }
-        let placeholder = "YouTube Live Stream"
-        let name = (controller.title == placeholder || controller.title.isEmpty) ? id : controller.title
-        favorites.add(name: name, videoID: id)
-    }
 }
 
 // MARK: - Header bar
@@ -385,7 +342,6 @@ private struct HeaderBarView: View {
     let videoOn: Bool
     let onToggleVideo: () -> Void
     let onReload: () -> Void
-    let onOpenInWindow: () -> Void
     let share: NativeShareMenuButton
     let queueCount: Int
     let onOpenQueue: () -> Void
@@ -395,6 +351,8 @@ private struct HeaderBarView: View {
     let ytPlaylistActive: Bool
     let ytPlaylistLabel: String
     let onOpenPlaylistSheet: () -> Void
+    let lyricsAvailable: Bool
+    let onOpenLyrics: () -> Void
     let apiKeyConfigured: Bool
     let onOpenSettings: () -> Void
 
@@ -410,9 +368,6 @@ private struct HeaderBarView: View {
                 IconButton(systemName: "arrow.clockwise",
                            help: "Reload current stream",
                            action: onReload)
-                IconButton(systemName: "macwindow",
-                           help: "Open Murmur in a standalone window (shows in the Dock)",
-                           action: onOpenInWindow)
                 // Native share button — sized to match IconButton's 36×28 chrome.
                 shareChrome
             }
@@ -455,6 +410,12 @@ private struct HeaderBarView: View {
                            tint: userPlaylistActive ? MurmurColor.accent : nil,
                            help: userPlaylistTooltip,
                            action: onOpenUserPlaylists)
+                if lyricsAvailable {
+                    IconButton(systemName: "text.quote",
+                               tint: MurmurColor.accent,
+                               help: "Lyrics",
+                               action: onOpenLyrics)
+                }
                 IconButton(systemName: "gearshape",
                            tint: apiKeyConfigured ? MurmurColor.accent : nil,
                            help: apiKeyConfigured ? "YouTube API key configured"
@@ -537,7 +498,7 @@ private struct URLInputBarView: View {
     @Binding var text: String
     let onCommit: () -> Void
     let canSubmit: Bool
-    let favoritesMenu: () -> AnyView
+    let favoritesButton: NativeFavoritesMenuButton
     let onSearch: () -> Void
     @State private var hovering = false
 
@@ -553,20 +514,13 @@ private struct URLInputBarView: View {
                 .foregroundStyle(MurmurColor.textPrimary)
                 .tint(MurmurColor.accent)
 
-            // Favorites star — kept as SwiftUI Menu because its content is
-            // dynamic (favorites + dynamic discover catalog). If hover bug
-            // hits here it can be swapped for an NSMenu like shareMenu.
-            Menu {
-                favoritesMenu()
-            } label: {
-                Image(systemName: "star.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MurmurColor.accent)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Favorites & discover")
+            // Favorites star — AppKit NSMenu instead of SwiftUI `Menu` so the
+            // "Discover live music" / "Remove" submenus track hover correctly.
+            // SwiftUI's submenu tracking window doesn't become key here,
+            // leaving highlights stuck and the cursor unable to traverse
+            // submenu items.
+            favoritesButton
+                .frame(width: 20, height: 20)
 
             Button(action: onSearch) {
                 Image(systemName: "magnifyingglass")
@@ -1045,6 +999,148 @@ struct NativeShareMenuButton: NSViewRepresentable {
         private func copy(_ s: String) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(s, forType: .string)
+        }
+    }
+}
+
+// MARK: - Native favorites + discover menu
+//
+// AppKit-backed star button. Replaces a SwiftUI `Menu` whose nested
+// submenus ("Remove", "Discover live music") suffered the same hover-
+// tracking bug as the old share menu: the submenu window didn't become
+// key, leaving the highlight stuck on the first item and the cursor
+// unable to traverse. `NSMenu` handles its own tracking correctly.
+
+struct NativeFavoritesMenuButton: NSViewRepresentable {
+    let controller: PlayerController
+    let tint: NSColor
+
+    func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        let cfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        let image = NSImage(systemSymbolName: "star.fill", accessibilityDescription: "Favorites")?
+            .withSymbolConfiguration(cfg)
+        image?.isTemplate = true
+        button.image = image
+        button.contentTintColor = tint
+        button.toolTip = "Favorites & discover"
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.onClick(_:))
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.controller = controller
+        button.contentTintColor = tint
+    }
+
+    final class Coordinator: NSObject {
+        var controller: PlayerController
+
+        init(controller: PlayerController) { self.controller = controller }
+
+        @objc func onClick(_ sender: NSButton) {
+            let menu = buildMenu()
+            menu.popUp(positioning: nil,
+                       at: NSPoint(x: 0, y: sender.bounds.height + 4),
+                       in: sender)
+        }
+
+        private func buildMenu() -> NSMenu {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+
+            let favorites = FavoritesStore.shared.items
+            let currentID = controller.currentVideoID
+
+            if favorites.isEmpty {
+                let placeholder = NSMenuItem(title: "No favorites yet", action: nil, keyEquivalent: "")
+                placeholder.isEnabled = false
+                menu.addItem(placeholder)
+            } else {
+                for fav in favorites {
+                    let item = NSMenuItem(title: label(name: fav.name, videoID: fav.videoID),
+                                          action: #selector(loadFavorite(_:)),
+                                          keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = fav.videoID
+                    menu.addItem(item)
+                }
+                menu.addItem(.separator())
+                let removeRoot = NSMenuItem(title: "Remove", action: nil, keyEquivalent: "")
+                let removeSub = NSMenu()
+                for fav in favorites {
+                    let r = NSMenuItem(title: fav.name,
+                                       action: #selector(removeFavorite(_:)),
+                                       keyEquivalent: "")
+                    r.target = self
+                    r.representedObject = fav.videoID
+                    removeSub.addItem(r)
+                }
+                removeRoot.submenu = removeSub
+                menu.addItem(removeRoot)
+            }
+
+            menu.addItem(.separator())
+
+            let discoverRoot = NSMenuItem(title: "Discover live music", action: nil, keyEquivalent: "")
+            let discoverSub = NSMenu()
+            for group in ContentView.catalog {
+                let header = NSMenuItem(title: group.category, action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                discoverSub.addItem(header)
+                for item in group.items {
+                    let it = NSMenuItem(title: label(name: item.name, videoID: item.videoID),
+                                        action: #selector(loadFavorite(_:)),
+                                        keyEquivalent: "")
+                    it.target = self
+                    it.representedObject = item.videoID
+                    discoverSub.addItem(it)
+                }
+            }
+            discoverRoot.submenu = discoverSub
+            menu.addItem(discoverRoot)
+
+            menu.addItem(.separator())
+
+            let save = NSMenuItem(title: "Save current as favorite",
+                                  action: #selector(saveCurrent(_:)),
+                                  keyEquivalent: "")
+            save.target = self
+            save.isEnabled = !currentID.isEmpty
+            menu.addItem(save)
+
+            return menu
+        }
+
+        private func label(name: String, videoID: String) -> String {
+            videoID == controller.currentVideoID ? "● \(name)" : "   \(name)"
+        }
+
+        @objc private func loadFavorite(_ sender: NSMenuItem) {
+            guard let videoID = sender.representedObject as? String else { return }
+            _ = controller.load(input: videoID)
+        }
+
+        @objc private func removeFavorite(_ sender: NSMenuItem) {
+            guard let videoID = sender.representedObject as? String,
+                  let fav = FavoritesStore.shared.items.first(where: { $0.videoID == videoID })
+            else { return }
+            FavoritesStore.shared.remove(fav)
+        }
+
+        @objc private func saveCurrent(_ sender: NSMenuItem) {
+            let id = controller.currentVideoID
+            guard !id.isEmpty else { return }
+            let placeholder = "YouTube Live Stream"
+            let name = (controller.title == placeholder || controller.title.isEmpty) ? id : controller.title
+            FavoritesStore.shared.add(name: name, videoID: id)
         }
     }
 }
