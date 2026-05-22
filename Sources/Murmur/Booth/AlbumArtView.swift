@@ -8,9 +8,14 @@ struct AlbumArtView: View {
     let artworkPath: String
     var size: CGFloat = 44
 
+    /// Decoded image cached in view state. Re-decoded only when `artworkPath`
+    /// changes — without this, every body re-evaluation (e.g. parent's
+    /// TimelineView ticks) repeats the disk read + image decode.
+    @State private var cached: NSImage?
+
     var body: some View {
         Group {
-            if let img = loadImage() {
+            if let img = cached {
                 Image(nsImage: img)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -33,11 +38,14 @@ struct AlbumArtView: View {
             RoundedRectangle(cornerRadius: 4)
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
+        .task(id: artworkPath) {
+            cached = Self.decode(path: artworkPath)
+        }
     }
 
-    private func loadImage() -> NSImage? {
-        guard !artworkPath.isEmpty else { return nil }
-        let url = LibraryIndex.artworkDirectory.appendingPathComponent(artworkPath)
+    private static func decode(path: String) -> NSImage? {
+        guard !path.isEmpty else { return nil }
+        let url = LibraryIndex.artworkDirectory.appendingPathComponent(path)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return NSImage(contentsOf: url)
     }

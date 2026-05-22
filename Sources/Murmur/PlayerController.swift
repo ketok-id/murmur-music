@@ -30,6 +30,11 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var playbackRate: Double = 1.0 {
         didSet { applyPlaybackRate() }
     }
+    /// Best-effort classification of the current video (music / podcast /
+    /// talk / other). Updated whenever a title arrives from the JS bridge.
+    /// The YouTube IFrame API doesn't expose categoryId, so this is
+    /// title-heuristic only — `VideoCategoryHint.classify(categoryId: "", title:)`.
+    @Published var categoryHint: VideoCategoryHint = .other
     /// Called when the YouTube playerState transitions to ended (state 0).
     var onEnded: (() -> Void)?
     let webView: WKWebView
@@ -275,33 +280,56 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
         id.hasPrefix("RD")
     }
 
-    /// Pulls the `list=…` playlist ID out of any YouTube URL. Returns nil for
-    /// plain video-ID strings or URLs without a `list` query parameter.
+    /// Strict YouTube videoID shape — 11 chars, URL-safe-base64 charset.
+    /// Both extractors apply this to every return branch so attacker-
+    /// controlled input can't smuggle attribute-injection characters
+    /// (`"`, `<`, `>`, space, etc.) into the iframe `src=` we build later.
+    private static let videoIDPattern = "^[A-Za-z0-9_-]{11}$"
+    /// YouTube playlist IDs in the wild range from 13 chars (PL…) up to
+    /// ~40 chars (RD…, OLAK5uy_…). 10–64 is a comfortable envelope that
+    /// still rejects anything containing attribute-injection characters.
+    private static let playlistIDPattern = "^[A-Za-z0-9_-]{10,64}$"
+
+    static func isValidVideoID(_ s: String) -> Bool {
+        s.range(of: videoIDPattern, options: .regularExpression) != nil
+    }
+
+    static func isValidPlaylistID(_ s: String) -> Bool {
+        s.range(of: playlistIDPattern, options: .regularExpression) != nil
+    }
+
+    /// Pulls the `list=…` playlist ID out of any YouTube URL. Returns nil
+    /// for plain video-ID strings, URLs without a `list` query parameter,
+    /// or values that don't match the strict playlist-ID shape.
     static func extractPlaylistID(_ raw: String) -> String? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty, let url = URL(string: s),
               let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let value = comp.queryItems?.first(where: { $0.name == "list" })?.value,
-              !value.isEmpty else { return nil }
+              !value.isEmpty,
+              isValidPlaylistID(value) else { return nil }
         return value
     }
 
     static func extractYouTubeID(_ raw: String) -> String? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return nil }
-        // Plain 11-char ID
-        if s.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil {
-            return s
-        }
+        if isValidVideoID(s) { return s }
         guard let url = URL(string: s) else { return nil }
         if let comp = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           let v = comp.queryItems?.first(where: { $0.name == "v" })?.value, !v.isEmpty {
-            return String(v.prefix(11))
+           let v = comp.queryItems?.first(where: { $0.name == "v" })?.value,
+           isValidVideoID(v) {
+            return v
         }
         // youtu.be/<id>, youtube.com/embed/<id>, youtube.com/live/<id>, youtube.com/shorts/<id>
         let parts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
-        if let last = parts.last, last.count >= 11 {
-            return String(last.prefix(11))
+        if let last = parts.last {
+            // The full path component must match the videoID shape — no
+            // truncation. Prevents `…/abcdefghij"x` from sneaking through.
+            if isValidVideoID(last) { return last }
+            // Some YouTube URL shapes prepend a prefix segment that's
+            // still followed by an exact 11-char ID; accept only that case.
+            if last.count == 11, isValidVideoID(last) { return last }
         }
         return nil
     }
@@ -447,7 +475,10 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
                     }
                 }
             case "title":
-                if let t = body["title"] as? String, !t.isEmpty { c.title = t }
+                if let t = body["title"] as? String, !t.isEmpty {
+                    c.title = t
+                    c.categoryHint = VideoCategoryHint.classify(categoryId: "", title: t)
+                }
             case "video":
                 if let id = body["videoId"] as? String { c.updateCurrentVideoID(id) }
             case "time":

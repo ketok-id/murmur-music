@@ -77,5 +77,11 @@ struct MurmurApp: App {
             APIKeySetupSheet()
         }
         .windowResizability(.contentSize)
+
+        Window("Lyrics", id: "lyrics") {
+            LyricsView()
+                .environmentObject(delegate.controller)
+        }
+        .windowResizability(.contentSize)
     }
 }

@@ -3,13 +3,18 @@ import WebKit
 
 /// A hidden YouTube webview that plays an ambient source in the background.
 ///
-/// Mirrors the iframe + postMessage handshake used by `PlayerController` in
-/// `main.swift`. The webview lives off-screen at (-3000, -3000) — WebKit
-/// suspends media playback on detached / 0×0 views, so a real frame is required.
-final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+/// Mirrors the iframe + postMessage handshake used by `PlayerController`.
+/// The webview lives off-screen at (-3000, -3000) — WebKit suspends media
+/// playback on detached / 0×0 views, so a real frame is required.
+final class AmbientPlayer: NSObject, WKNavigationDelegate {
     let webView: WKWebView
     private var currentVideoID: String?
     private var pendingVolume: Int = 60
+    /// Separate handler with a weak back-reference. `WKUserContentController`
+    /// retains its message handler strongly — registering `self` would close
+    /// the cycle `AmbientPlayer → webView → config → controller → AmbientPlayer`
+    /// and `deinit` would never fire.
+    private let scriptHandler: AmbientScriptHandler
 
     /// Owning container window. Hidden offscreen so playback stays alive
     /// without occupying visible real estate. Stays `orderOut`'d until the
@@ -29,16 +34,28 @@ final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandle
             backing: .buffered,
             defer: false
         )
+        self.scriptHandler = AmbientScriptHandler()
         super.init()
+        scriptHandler.player = self
         webView.navigationDelegate = self
         webView.setValue(false, forKey: "drawsBackground")
-        config.userContentController.add(self, name: "ambientCB")
+        config.userContentController.add(scriptHandler, name: "ambientCB")
         window.contentView = webView
         window.isReleasedWhenClosed = false
     }
 
+    deinit {
+        webView.configuration.userContentController
+            .removeScriptMessageHandler(forName: "ambientCB")
+    }
+
     /// Load (or swap) the active video and start playing.
     func loadAndPlay(videoID: String) {
+        // Defense-in-depth: even though the caller (search results / favorites)
+        // generally feeds Google-derived IDs, validate before interpolating
+        // into the iframe `src=` to avoid attribute-injection if the upstream
+        // ever returns something malformed.
+        guard PlayerController.isValidVideoID(videoID) else { return }
         currentVideoID = videoID
         // Lift the host window into the on-screen list now that we actually
         // need a real frame for WebKit's media session. Done here (not in
@@ -63,12 +80,6 @@ final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         webView.loadHTMLString("<html><body style='background:#000'></body></html>", baseURL: nil)
         window.orderOut(nil)
         currentVideoID = nil
-    }
-
-    // MARK: - WKScriptMessageHandler
-
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        // No-op for ambient — fire-and-forget commands.
     }
 
     private static func htmlPage(videoID: String, initialVolume: Int) -> String {
@@ -110,5 +121,17 @@ final class AmbientPlayer: NSObject, WKNavigationDelegate, WKScriptMessageHandle
         </body>
         </html>
         """
+    }
+}
+
+/// Separate `WKScriptMessageHandler` so the user-content-controller's strong
+/// retention of its handler doesn't close a retain cycle on `AmbientPlayer`.
+/// The body is a no-op today; the handler exists only to receive the
+/// fire-and-forget `ambientCB` messages emitted by the page script.
+private final class AmbientScriptHandler: NSObject, WKScriptMessageHandler {
+    weak var player: AmbientPlayer?
+    func userContentController(_ controller: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        // No-op; ambient commands are fire-and-forget.
     }
 }

@@ -77,6 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var positionCancellable: AnyCancellable?
     private var userPlaylistCancellable: AnyCancellable?
     private var lastSessionCancellable: AnyCancellable?
+    private var lyricsVideoCancellable: AnyCancellable?
+    private var lyricsCategoryCancellable: AnyCancellable?
 
     /// Demote to `.accessory` *before* AppKit registers with the Dock
     /// manager — `applicationWillFinishLaunching` is the earliest
@@ -244,6 +246,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             }
 
+        // Drive LyricsStore from videoID + categoryHint. Two separate
+        // sinks because the title (and so the category) often arrives
+        // after the videoID changes — the second sink catches that.
+        lyricsVideoCancellable = controller.$currentVideoID
+            .removeDuplicates()
+            .sink { [weak self] videoID in
+                guard let self = self else { return }
+                Task { @MainActor in
+                    self.refreshLyrics(forVideoID: videoID,
+                                       hint: self.controller.categoryHint)
+                }
+            }
+        lyricsCategoryCancellable = controller.$categoryHint
+            .removeDuplicates()
+            .sink { [weak self] hint in
+                guard let self = self else { return }
+                Task { @MainActor in
+                    self.refreshLyrics(forVideoID: self.controller.currentVideoID,
+                                       hint: hint)
+                }
+            }
+
         // Surface the main window now that the launch contract is wired.
         mainWindow.show()
 
@@ -253,9 +277,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SwiftUI-managed auxiliary window so only the AppKit-hosted
         // main window is visible at boot. They reopen normally on
         // `openWindow(id:)` because `Window` scenes are single-instance.
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            let auxIDs = ["queue", "playlist", "user-playlists", "search", "api-key"]
+        DispatchQueue.main.async {
+            let auxIDs = ["queue", "playlist", "user-playlists", "search", "api-key", "lyrics"]
             for window in NSApp.windows {
                 guard let id = window.identifier?.rawValue else { continue }
                 if auxIDs.contains(where: id.contains), window.isVisible {
@@ -352,14 +375,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard action.isEmpty || action == "play" else { return }
         let q = comp.queryItems ?? []
         guard let v = q.first(where: { $0.name == "v" })?.value, !v.isEmpty else { return }
-        let list = q.first(where: { $0.name == "list" })?.value ?? ""
+        // Validate at the trust boundary — `murmur://` is the one path where
+        // an external attacker (any webpage) can hand us URL fragments.
+        // Reject anything that doesn't match YouTube's strict ID shapes
+        // before reconstructing a URL for `controller.load`.
+        guard let validVideoID = PlayerController.extractYouTubeID(v) else { return }
+        let listRaw = q.first(where: { $0.name == "list" })?.value ?? ""
+        // Empty list is fine; non-empty must validate as a playlist ID.
+        var validList = ""
+        if !listRaw.isEmpty {
+            guard let id = PlayerController.extractPlaylistID(
+                "https://www.youtube.com/watch?v=\(validVideoID)&list=\(listRaw)"
+            ) else { return }
+            validList = id
+        }
         // Reuse `controller.load` so the same parse / clear-other-playlist /
         // history / queue plumbing runs as any other load path.
         let input: String
-        if !list.isEmpty {
-            input = "https://www.youtube.com/watch?v=\(v)&list=\(list)"
+        if !validList.isEmpty {
+            input = "https://www.youtube.com/watch?v=\(validVideoID)&list=\(validList)"
         } else {
-            input = v
+            input = validVideoID
         }
         _ = controller.load(input: input)
     }
@@ -377,4 +413,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Audio must keep playing when the main window closes.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    @MainActor
+    private func refreshLyrics(forVideoID videoID: String, hint: VideoCategoryHint) {
+        guard hint == .music else {
+            LyricsStore.shared.clear()
+            return
+        }
+        guard !videoID.isEmpty else { return }
+        LyricsStore.shared.fetch(
+            videoID: videoID,
+            title: controller.title,
+            duration: controller.duration
+        )
+    }
 }

@@ -71,8 +71,9 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSQuitAlwaysKeepsWindows</key><false/>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSAppTransportSecurity</key>
-  <dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+  <!-- ATS is left at its (strict) defaults. Every outbound URL in the
+       codebase is HTTPS — lrclib.net, googleapis.com, api.github.com,
+       youtube-nocookie.com — so the bypass is unnecessary. -->
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

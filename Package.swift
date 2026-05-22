@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Murmur",
-            path: "Sources/Murmur"
+            path: "Sources/Murmur",
+            exclude: ["Ambient/CLAUDE.md"]
         )
     ]
 )

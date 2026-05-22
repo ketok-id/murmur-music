@@ -22,6 +22,14 @@ final class PlayedVideoHistoryStore: ObservableObject {
 
     private let key = "youtube-audio-widget.played-history.v1"
     private let cap = 50
+    /// Debounced background writer. `updatePosition` fires every ~5s while
+    /// a video plays — without coalescing each tick would synchronously
+    /// JSON-encode the full 50-entry list and write UserDefaults on the
+    /// main thread. We accumulate writes within a short window and flush
+    /// once on a utility queue.
+    private let saveQueue = DispatchQueue(label: "murmur.playedhistory.save", qos: .utility)
+    private var pendingSave: DispatchWorkItem?
+    private let saveDebounce: TimeInterval = 1.0
 
     private init() { load() }
 
@@ -61,9 +69,19 @@ final class PlayedVideoHistoryStore: ObservableObject {
         entries = list
     }
 
+    /// Debounced save: snapshot `entries` on the caller's thread (main),
+    /// then JSON-encode + write to UserDefaults on a utility queue. Multiple
+    /// `save()` calls within `saveDebounce` coalesce into a single write.
     private func save() {
-        if let data = try? JSONEncoder().encode(entries) {
-            UserDefaults.standard.set(data, forKey: key)
+        pendingSave?.cancel()
+        let snapshot = entries
+        let storeKey = key
+        let item = DispatchWorkItem {
+            if let data = try? JSONEncoder().encode(snapshot) {
+                UserDefaults.standard.set(data, forKey: storeKey)
+            }
         }
+        pendingSave = item
+        saveQueue.asyncAfter(deadline: .now() + saveDebounce, execute: item)
     }
 }

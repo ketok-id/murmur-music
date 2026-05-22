@@ -22,9 +22,13 @@ struct JogWheelView: View {
 
     @State private var dragStartSeconds: Double = 0
     @State private var dragActive: Bool = false
+    /// Decoded artwork cached in view state. Loaded once per `artworkPath`
+    /// change via `.task(id:)` — without this, the disk read + image decode
+    /// runs 30 times per second inside `body` whenever a deck is visible.
+    @State private var cachedArtwork: NSImage?
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !state.isPlaying)) { timeline in
             let now = timeline.date.timeIntervalSinceReferenceDate
             let rotation = currentRotation(at: now)
             let pulse = beatPulse(at: now)
@@ -91,6 +95,10 @@ struct JogWheelView: View {
                     }
             )
         }
+        // Re-decode artwork only when the path actually changes.
+        .task(id: state.artworkPath) {
+            cachedArtwork = Self.decodeArtwork(path: state.artworkPath)
+        }
     }
 
     /// Album art on the platter's center, sized to ~45% of platter diameter,
@@ -99,7 +107,7 @@ struct JogWheelView: View {
         let labelSize = size * 0.45
         return ZStack {
             Group {
-                if let img = loadArtwork() {
+                if let img = cachedArtwork {
                     Image(nsImage: img)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -151,9 +159,9 @@ struct JogWheelView: View {
         return decay
     }
 
-    private func loadArtwork() -> NSImage? {
-        guard !state.artworkPath.isEmpty else { return nil }
-        let url = LibraryIndex.artworkDirectory.appendingPathComponent(state.artworkPath)
+    private static func decodeArtwork(path: String) -> NSImage? {
+        guard !path.isEmpty else { return nil }
+        let url = LibraryIndex.artworkDirectory.appendingPathComponent(path)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return NSImage(contentsOf: url)
     }
