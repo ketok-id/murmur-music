@@ -39,7 +39,7 @@ Swift · SwiftUI · WKWebView · ~1.4 MB zipped · macOS 13+
 ### Sharing & updates
 - **Share menu** in the popover — system share sheet via `ShareLink`, plus copy actions for: YouTube link, Murmur deep link, title, title + link, rich "now playing" card.
 - **`murmur://` URL scheme** — `murmur://play?v=<id>[&list=<playlistID>]`. Recipients with Murmur installed open straight into playback.
-- **In-app update notifications** — the version label in the footer flips into a tappable accent badge when a newer release is published. Background check runs on launch + every 6 hours against GitHub Releases.
+- **In-app self-update** — when a newer release is published, the footer version label flips into a tappable accent badge. Clicking it downloads the new build, swaps it in place, and relaunches — no trip to GitHub, no manual reinstall. (Falls back to opening the release page if the in-place update can't run, e.g. the app isn't in a writable location.) Background check runs on launch + every 6 hours against GitHub Releases.
 
 ## Requirements
 

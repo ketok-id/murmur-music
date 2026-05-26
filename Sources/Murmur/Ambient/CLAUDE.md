@@ -39,7 +39,18 @@ Other stores in this directory (`PlayedVideoHistoryStore`, `PlaylistStore`, `Tre
 
 `UpdateChecker.swift` polls `https://api.github.com/repos/ketok-id/murmur-music/releases/latest` on launch + every 6 hours. Tag format is `v<dotted-version>` (e.g. `v2026.05.21.0`); the `v` is stripped before comparison. The dev binary (`swift run`) reports its version as `dev` and `hasUpdate` always returns false there.
 
-See the "publish an update" sequence in the root `CLAUDE.md` for the release flow that produces a tag this checker can find.
+It also records the release's `Murmur.zip` asset URL as `downloadURL`, which powers the in-app self-update.
+
+See the "publish an update" sequence in the root `CLAUDE.md` for the release flow that produces a tag this checker can find. **The release must keep shipping the `Murmur.zip` asset** — the self-updater installs from the zip (not the DMG, which it can't unpack without mounting). `build-app.sh` produces both.
+
+## SelfUpdater (in-app update)
+
+`SelfUpdater.swift` performs the update the footer badge triggers via `UpdateChecker.downloadAndInstall()`. Flow: download `Murmur.zip` → `ditto -x -k` unpack → `xattr -dr com.apple.quarantine` (Murmur is ad-hoc signed, not notarized, so the fresh copy must be de-quarantined or Gatekeeper refuses it) → write a detached `/bin/sh` helper that **waits for this PID to exit, swaps the bundle in place with rollback, then `open`s it** → `NSApp.terminate`.
+
+Non-obvious bits to preserve:
+- **A running `.app` can't overwrite its own bundle** — that's why the swap is deferred to an orphaned shell that outlives termination (reparented to launchd). Don't try to do the `mv` from inside the app.
+- **Preconditions guard before any disk change:** must be a real `.app` (not `swift run`), not Gatekeeper-translocated (`/AppTranslocation/` path → read-only), and the parent dir must be writable. Failures throw and leave the install untouched; `installState` surfaces the message and the badge falls back to opening the GitHub release page.
+- `installState` (`idle` / `working` / `failed`) drives the badge: spinner while working, error+GitHub-fallback on failure.
 
 ## Lyrics
 

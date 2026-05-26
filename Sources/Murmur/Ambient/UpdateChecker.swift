@@ -20,16 +20,48 @@ final class UpdateChecker: ObservableObject {
     /// API allows ~60 requests/hour per IP, so 6h is generous.
     static let recheckInterval: TimeInterval = 6 * 3600
 
+    /// Progress of an in-app self-update (download → unpack → relaunch).
+    enum InstallState: Equatable {
+        case idle
+        case working
+        case failed(String)
+    }
+
     @Published private(set) var currentVersion: String
     @Published private(set) var latestVersion: String? = nil
     @Published private(set) var releaseURL: URL? = nil
+    /// Direct download URL of the release's `Murmur.zip` asset, used by the
+    /// in-app updater. Nil if the release published no zip asset.
+    @Published private(set) var downloadURL: URL? = nil
     @Published private(set) var releaseNotes: String = ""
     @Published private(set) var lastCheckedAt: Date? = nil
     @Published private(set) var isChecking: Bool = false
+    @Published var installState: InstallState = .idle
 
     var hasUpdate: Bool {
         guard let latest = latestVersion, currentVersion != "dev" else { return false }
         return Self.compare(current: currentVersion, latest: latest) == .orderedAscending
+    }
+
+    /// True when an update exists and we have a zip asset to install from —
+    /// i.e. the "Update & Restart" button can actually self-install rather
+    /// than just opening the release page.
+    var canSelfUpdate: Bool { hasUpdate && downloadURL != nil }
+
+    /// Download the latest `Murmur.zip` and swap-and-relaunch in place. On
+    /// success the app terminates (the helper finishes the install); failures
+    /// surface in `installState` and leave the running app untouched.
+    @MainActor
+    func downloadAndInstall() {
+        guard installState != .working, let url = downloadURL else { return }
+        installState = .working
+        Task { @MainActor in
+            do {
+                try await SelfUpdater.downloadAndInstall(zipURL: url)
+            } catch {
+                installState = .failed(error.localizedDescription)
+            }
+        }
     }
 
     private var checkTask: Task<Void, Never>?
@@ -80,12 +112,20 @@ final class UpdateChecker: ObservableObject {
                 let tag_name: String
                 let html_url: String
                 let body: String?
+                let assets: [Asset]
+                struct Asset: Decodable { let name: String; let browser_download_url: String }
             }
             let release = try JSONDecoder().decode(Release.self, from: data)
             let stripped = release.tag_name.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
+            // The in-app updater installs from the ditto-built `Murmur.zip`
+            // asset (not the DMG — a zip is trivial to unpack programmatically).
+            let zipURL = release.assets
+                .first { $0.name.hasSuffix(".zip") }
+                .flatMap { URL(string: $0.browser_download_url) }
             await MainActor.run {
                 self.latestVersion = stripped
                 self.releaseURL = URL(string: release.html_url)
+                self.downloadURL = zipURL
                 self.releaseNotes = release.body ?? ""
             }
         } catch {

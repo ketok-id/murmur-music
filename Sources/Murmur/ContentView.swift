@@ -253,16 +253,50 @@ struct ContentView: View {
     private var versionLabel: some View {
         if updateChecker.hasUpdate, let url = updateChecker.releaseURL,
            let latest = updateChecker.latestVersion {
-            Button(action: { NSWorkspace.shared.open(url) }) {
-                HStack(spacing: 3) {
-                    Image(systemName: "arrow.up.circle.fill")
-                    Text("v\(latest)")
+            switch updateChecker.installState {
+            case .working:
+                // Downloading + swapping; the app relaunches itself when done.
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini)
+                    Text("Updating…")
                 }
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(MurmurColor.accent)
+                .help("Downloading v\(latest) — Murmur will restart when it's ready.")
+
+            case .failed(let message):
+                // Fall back to the release page so the user can update manually.
+                Button(action: { NSWorkspace.shared.open(url) }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                        Text("v\(latest)")
+                    }
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(MurmurColor.accent)
+                }
+                .buttonStyle(.plain)
+                .help("Update failed: \(message)  Click to open the release on GitHub.")
+
+            case .idle:
+                Button(action: {
+                    if updateChecker.canSelfUpdate {
+                        updateChecker.downloadAndInstall()
+                    } else {
+                        NSWorkspace.shared.open(url)   // no zip asset → manual path
+                    }
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.circle.fill")
+                        Text("v\(latest)")
+                    }
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(MurmurColor.accent)
+                }
+                .buttonStyle(.plain)
+                .help(updateChecker.canSelfUpdate
+                      ? "Update available — v\(updateChecker.currentVersion) → v\(latest). Click to download and restart."
+                      : "Update available — v\(updateChecker.currentVersion) → v\(latest). Click to view on GitHub.")
             }
-            .buttonStyle(.plain)
-            .help("Update available — v\(updateChecker.currentVersion) → v\(latest). Click to view on GitHub.")
         } else {
             Text("v\(updateChecker.currentVersion)")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
