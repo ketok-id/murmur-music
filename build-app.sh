@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Murmur"
 BUNDLE_ID="local.murmur.app"
-VERSION="2026.05.22.0"
+VERSION="2026.05.26.0"
 DIST_DIR="dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 DMG_PATH="$DIST_DIR/$APP_NAME.dmg"
