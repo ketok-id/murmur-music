@@ -132,9 +132,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //    `WindowOpenerBridge.shared.openMain` closure.
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            let img = NSImage(systemSymbolName: "music.note", accessibilityDescription: "Murmur")
-            img?.isTemplate = true
-            button.image = img
+            // Brand serif "M" rendered as a template image so the menu bar
+            // tints it for light/dark automatically (template images use only
+            // the alpha channel — a coral squircle would flatten to a blob).
+            button.image = Self.menuBarBrandIcon(glyphHeight: 15)
             button.action = #selector(statusItemClicked(_:))
             button.target = self
         }
@@ -173,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
         // Throttle position writes to ~5s so we don't hammer UserDefaults.
-        positionCancellable = controller.$currentTime
+        positionCancellable = controller.clock.$currentTime
             .throttle(for: .seconds(5), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak self] seconds in
                 guard let self = self else { return }
@@ -405,6 +406,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// clicks just re-key/order-front the existing window.
     @objc func statusItemClicked(_ sender: AnyObject?) {
         mainWindow.show()
+    }
+
+    /// Builds the menu-bar status-item image: a bold serif "M" (matching the
+    /// app's brand mark) cropped tight to its ink bounds and flagged as a
+    /// template so AppKit tints it for the active menu-bar appearance.
+    /// `glyphHeight` is the target ink height in points (~15 reads well in a
+    /// standard ~22pt menu bar).
+    static func menuBarBrandIcon(glyphHeight: CGFloat) -> NSImage {
+        func boldSerif(_ size: CGFloat) -> CTFont {
+            for name in ["TimesNewRomanPS-BoldMT", "Georgia-Bold"] {
+                if let f = NSFont(name: name, size: size) { return f as CTFont }
+            }
+            return NSFont.boldSystemFont(ofSize: size) as CTFont
+        }
+        let measure = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
+                                bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        func line(_ size: CGFloat) -> CTLine {
+            let attrs = [
+                kCTFontAttributeName: boldSerif(size),
+                kCTForegroundColorAttributeName: CGColor(gray: 0, alpha: 1),
+            ] as CFDictionary
+            let astr = CFAttributedStringCreate(nil, "M" as CFString, attrs)!
+            return CTLineCreateWithAttributedString(astr)
+        }
+        // Measure ink height at a reference size, then scale to the target.
+        let ref: CGFloat = 200
+        let inkRef = CTLineGetImageBounds(line(ref), measure)
+        let pointSize = ref * (glyphHeight / inkRef.height)
+        let ln = line(pointSize)
+        let ink = CTLineGetImageBounds(ln, measure)
+
+        let pad: CGFloat = 1
+        let w = Int(ceil(ink.width + pad * 2))
+        let h = Int(ceil(ink.height + pad * 2))
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.textPosition = CGPoint(x: pad - ink.minX, y: pad - ink.minY)
+        CTLineDraw(ln, ctx)
+        let img = NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: w, height: h))
+        img.isTemplate = true
+        return img
     }
 
     func applicationWillTerminate(_ n: Notification) {

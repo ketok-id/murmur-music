@@ -70,13 +70,36 @@ struct LyricsView: View {
                     .padding(16)
             }
         case .synced(let lines):
-            syncedView(lines: lines)
+            // The clock-observing subview re-renders on the playhead ticks;
+            // LyricsView itself doesn't, so the surrounding chrome is static.
+            SyncedLyricsView(lines: lines, clock: controller.clock)
         }
     }
 
     @ViewBuilder
-    private func syncedView(lines: [LyricsLine]) -> some View {
-        let activeIdx = activeIndex(in: lines, at: controller.currentTime)
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Text("via lrclib.net")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(MurmurColor.textMuted.opacity(0.7))
+            Spacer()
+            if case .synced = store.current {
+                LyricsTimeLabel(clock: controller.clock)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 28)
+    }
+}
+
+/// Time-synced lyric list. Observes `PlaybackClock` (not the whole
+/// PlayerController) so only this subview re-renders on the playhead ticks.
+private struct SyncedLyricsView: View {
+    let lines: [LyricsLine]
+    @ObservedObject var clock: PlaybackClock
+
+    var body: some View {
+        let activeIdx = activeIndex(in: lines, at: clock.currentTime)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
@@ -102,23 +125,6 @@ struct LyricsView: View {
         }
     }
 
-    @ViewBuilder
-    private var footer: some View {
-        HStack(spacing: 6) {
-            Text("via lrclib.net")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(MurmurColor.textMuted.opacity(0.7))
-            Spacer()
-            if case .synced = store.current {
-                Text(timeLabel(controller.currentTime))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(MurmurColor.textMuted)
-            }
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 28)
-    }
-
     private func activeIndex(in lines: [LyricsLine], at t: Double) -> Int? {
         guard !lines.isEmpty, t >= lines[0].start else { return nil }
         var lo = 0, hi = lines.count - 1
@@ -128,9 +134,17 @@ struct LyricsView: View {
         }
         return lo
     }
+}
 
-    private func timeLabel(_ seconds: Double) -> String {
-        let s = Int(seconds.rounded())
-        return String(format: "%02d:%02d", s / 60, s % 60)
+/// Footer playhead label; observes the clock so the surrounding footer chrome
+/// stays static while the timestamp ticks.
+private struct LyricsTimeLabel: View {
+    @ObservedObject var clock: PlaybackClock
+
+    var body: some View {
+        let s = Int(clock.currentTime.rounded())
+        Text(String(format: "%02d:%02d", s / 60, s % 60))
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(MurmurColor.textMuted)
     }
 }

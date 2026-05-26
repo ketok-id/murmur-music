@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Build Murmur.app and zip it for sharing.
+# Build Murmur.app, then package it as a .zip and a drag-to-install .dmg.
 # Run this on macOS. Requires Xcode Command Line Tools (Swift 5.9+).
 #
-#   ./build-app.sh             # builds .app + .zip in ./dist (ad-hoc signed)
+#   ./build-app.sh             # builds .app + .zip + .dmg in ./dist (ad-hoc signed)
 #   ./build-app.sh --no-sign    # skip ad-hoc codesign (not recommended — Apple Silicon will refuse unsigned binaries as "damaged")
+#   ./build-app.sh --no-dmg     # skip the .dmg (just .app + .zip)
 #   ./build-app.sh --open       # also open the dist folder in Finder when done
 
 set -euo pipefail
@@ -15,13 +16,17 @@ BUNDLE_ID="local.murmur.app"
 VERSION="2026.05.22.0"
 DIST_DIR="dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+DMG_PATH="$DIST_DIR/$APP_NAME.dmg"
 
 SIGN=1
 OPEN_DIST=0
+MAKE_DMG=1
 for arg in "$@"; do
   case "$arg" in
     --sign) SIGN=1 ;;
     --no-sign) SIGN=0 ;;
+    --dmg) MAKE_DMG=1 ;;
+    --no-dmg) MAKE_DMG=0 ;;
     --open) OPEN_DIST=1 ;;
     *) echo "Unknown flag: $arg"; exit 2 ;;
   esac
@@ -109,16 +114,50 @@ fi
 
 echo "▶︎ Zipping for sharing..."
 ( cd "$DIST_DIR" && rm -f "$APP_NAME.zip" && /usr/bin/ditto -c -k --keepParent "$APP_NAME.app" "$APP_NAME.zip" )
+ZIP_SIZE=$(du -sh "$DIST_DIR/$APP_NAME.zip" | awk '{print $1}')
 
-SIZE=$(du -sh "$APP_BUNDLE.zip" 2>/dev/null | awk '{print $1}' || du -sh "$DIST_DIR/$APP_NAME.zip" | awk '{print $1}')
+DMG_SIZE=""
+if [ "$MAKE_DMG" = "1" ]; then
+  if command -v hdiutil >/dev/null 2>&1; then
+    echo "▶︎ Building DMG installer..."
+    # Stage the .app next to an /Applications symlink so the mounted volume
+    # shows the familiar "drag Murmur into Applications" layout.
+    STAGING="$(mktemp -d)/dmg"
+    mkdir -p "$STAGING"
+    cp -R "$APP_BUNDLE" "$STAGING/$APP_NAME.app"
+    ln -s /Applications "$STAGING/Applications"
+    rm -f "$DMG_PATH"
+    # UDZO = zlib-compressed read-only image (smallest, standard for downloads).
+    hdiutil create \
+      -volname "$APP_NAME" \
+      -srcfolder "$STAGING" \
+      -fs HFS+ \
+      -format UDZO \
+      -ov \
+      "$DMG_PATH" >/dev/null
+    rm -rf "$STAGING"
+    if [ "$SIGN" = "1" ]; then
+      codesign --force --sign - "$DMG_PATH"
+    fi
+    DMG_SIZE=$(du -sh "$DMG_PATH" | awk '{print $1}')
+  else
+    echo "⚠︎ hdiutil not found — skipping DMG."
+    MAKE_DMG=0
+  fi
+fi
+
 echo ""
 echo "✅ Done."
 echo "   App:  $(pwd)/$APP_BUNDLE"
-echo "   Zip:  $(pwd)/$DIST_DIR/$APP_NAME.zip   ($SIZE)"
+echo "   Zip:  $(pwd)/$DIST_DIR/$APP_NAME.zip   ($ZIP_SIZE)"
+if [ "$MAKE_DMG" = "1" ]; then
+  echo "   DMG:  $(pwd)/$DMG_PATH   ($DMG_SIZE)"
+fi
 echo ""
-echo "Share the .zip. On the recipient's Mac, after unzipping:"
-echo "  • Right-click → Open the first time (unsigned app, Gatekeeper warning)"
-echo "  • Or move to /Applications and launch normally"
+echo "For the website, upload the .dmg. On first launch the recipient hits"
+echo "Gatekeeper (unsigned/un-notarized app):"
+echo "  • Open the .dmg, drag Murmur to Applications, then right-click → Open"
+echo "  • Or run:  xattr -dr com.apple.quarantine /Applications/Murmur.app"
 
 if [ "$OPEN_DIST" = "1" ]; then
   open "$DIST_DIR"

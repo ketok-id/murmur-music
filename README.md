@@ -8,6 +8,8 @@
 
 Swift · SwiftUI · WKWebView · ~1.4 MB zipped · macOS 13+
 
+**[murmur.ketok.id](https://murmur.ketok.id)**
+
 </div>
 
 ---
@@ -26,8 +28,10 @@ Swift · SwiftUI · WKWebView · ~1.4 MB zipped · macOS 13+
 - **Playback rate** — 0.5× to 2.0× via a small menu next to the volume slider.
 
 ### Window
-- **Chromeless floating video** — optional 16:9 window with no title bar, draggable from anywhere, always-on-top, aspect-ratio-locked.
-- **HUD overlay** — fades in on hover: play/pause, scrub, time, volume, **pin**, close.
+- **Chromeless floating video** — optional window with no title bar, draggable from anywhere, always-on-top, aspect-ratio-locked.
+- **HUD overlay** — fades in on hover: play/pause, scrub, time, volume, **orientation**, **pin**, **full screen**, close.
+- **Portrait / landscape toggle** — flip the window between 16:9 (regular videos) and 9:16 (YouTube Shorts and other vertical content); the choice persists across launches.
+- **Full screen** — borderless full-screen on the current display, covering the menu bar; exits cleanly back to the floating window (Esc or the HUD button).
 - **Pin to all Spaces** — pinning toggles `.canJoinAllSpaces` so the video follows you across Mission Control desktops and into full-screen apps. Persists across launches.
 - **Cassette tape UI** — animated reels with play/pause inside the cassette; the cassette's label carries the now-playing title + playlist context; rotation speed tied to volume.
 - **Smart loading** — opaque mask hides any flash between stream switches, and an in-page cover masks YouTube's paused-state overlay (Topic-channel "now playing" card, center pills) — so the floating window only ever shows the video itself.
@@ -72,10 +76,12 @@ Produces:
 | --- | --- |
 | `dist/Murmur.app` | Double-clickable app |
 | `dist/Murmur.zip` | Send this to others (~1.4 MB zipped) |
+| `dist/Murmur.dmg` | Drag-to-Applications installer — the download to host on the website (~1.6 MB) |
 
 Optional flags:
 
 - `--no-sign` — skip ad-hoc codesign (default is **on**; turning it off will produce a binary Apple Silicon refuses to launch)
+- `--no-dmg` — skip building the `.dmg` (just `.app` + `.zip`)
 - `--open` — open the `dist/` folder in Finder when done
 
 ### Sharing
@@ -166,6 +172,7 @@ Sources/Murmur/
 - An `NSStatusItem` lives in the menu bar and opens an `NSPopover` (behavior `.applicationDefined` + a global `NSEvent` monitor for click-outside-to-close — `.transient` causes SwiftUI Menu hover flicker).
 - A `WKWebView` hosts the YouTube embed iframe and lives in a real `NSWindow` (off-screen by default) so WebKit doesn't suspend media playback.
 - Toggling the video on changes the window's `styleMask` to a chromeless `[.titled, .closable, .resizable, .fullSizeContentView]` floating window. Pinning flips `collectionBehavior` to `[.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]` so the window joins every Space.
+- The orientation toggle swaps the window's `contentAspectRatio` / `minSize` between 16:9 and 9:16 (re-anchored around the current center) and persists the choice. Full screen is manual — a borderless `setFrame(screen.frame)` at `.popUpMenu` level rather than AppKit's native `toggleFullScreen(_:)`, which would strand a menu-bar-only app on its own Space.
 - A transparent `WindowDragOverlay` on top of the WKWebView calls `window.performDrag(with:)` so the entire video surface drags the window — `isMovableByWindowBackground` alone is unreliable when stacked over WebKit.
 - Swift ↔ iframe communication uses the YouTube IFrame API's postMessage protocol, with state and title posted back via `webkit.messageHandlers`.
 - Stream switches trigger a Swift-side opaque mask **and** an in-page JS cover, so neither the WKWebView reload flash nor YouTube's paused/branding overlays are ever visible.

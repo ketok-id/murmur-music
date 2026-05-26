@@ -7,6 +7,9 @@ import AppKit
 struct VideoControlsHUD: View {
     @ObservedObject var controller: PlayerController
     @ObservedObject var videoWindow: VideoWindowController
+    /// Playhead/duration observed separately from `controller` so the frequent
+    /// time ticks re-render only this HUD, not the whole menu-bar panel.
+    @ObservedObject var clock: PlaybackClock
 
     @State private var draggingScrubber: Bool = false
     @State private var scrubValue: Double = 0
@@ -23,7 +26,9 @@ struct VideoControlsHUD: View {
                 scrubber
                 timeLabel(remaining, monospaced: true, scale: scale)
                 volumeControl(scale: scale)
+                orientationButton(scale: scale)
                 pinButton(scale: scale)
+                fullScreenButton(scale: scale)
                 closeButton(scale: scale)
             }
             .padding(.horizontal, 14 * scale)
@@ -49,13 +54,13 @@ struct VideoControlsHUD: View {
     private var scrubber: some View {
         Slider(
             value: Binding(
-                get: { draggingScrubber ? scrubValue : controller.currentTime },
+                get: { draggingScrubber ? scrubValue : clock.currentTime },
                 set: { newValue in
                     scrubValue = newValue
                     draggingScrubber = true
                 }
             ),
-            in: 0...max(controller.duration, 1),
+            in: 0...max(clock.duration, 1),
             onEditingChanged: { editing in
                 if !editing {
                     controller.seek(to: scrubValue)
@@ -64,7 +69,7 @@ struct VideoControlsHUD: View {
             }
         )
         .controlSize(.small)
-        .disabled(controller.duration <= 0)
+        .disabled(clock.duration <= 0)
     }
 
     private func timeLabel(_ seconds: Double, monospaced: Bool = false, scale: CGFloat) -> some View {
@@ -109,6 +114,34 @@ struct VideoControlsHUD: View {
               : "Pin to all Spaces")
     }
 
+    private func orientationButton(scale: CGFloat) -> some View {
+        Button(action: { videoWindow.toggleOrientation() }) {
+            Image(systemName: videoWindow.orientation == .landscape
+                  ? "rectangle.portrait"
+                  : "rectangle")
+                .font(.system(size: 12 * scale, weight: .medium))
+                .frame(width: 22 * scale, height: 22 * scale)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(videoWindow.orientation == .landscape
+              ? "Switch to portrait (9:16)"
+              : "Switch to landscape (16:9)")
+    }
+
+    private func fullScreenButton(scale: CGFloat) -> some View {
+        Button(action: { videoWindow.toggleFullScreen() }) {
+            Image(systemName: videoWindow.isFullScreen
+                  ? "arrow.down.right.and.arrow.up.left"
+                  : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 12 * scale, weight: .medium))
+                .frame(width: 22 * scale, height: 22 * scale)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(videoWindow.isFullScreen ? "Exit full screen" : "Enter full screen")
+    }
+
     private func closeButton(scale: CGFloat) -> some View {
         Button(action: { videoWindow.setVisible(false) }) {
             Image(systemName: "xmark")
@@ -123,12 +156,12 @@ struct VideoControlsHUD: View {
     // MARK: - Derived values
 
     private var elapsed: Double {
-        draggingScrubber ? scrubValue : controller.currentTime
+        draggingScrubber ? scrubValue : clock.currentTime
     }
 
     private var remaining: Double {
-        guard controller.duration > 0 else { return 0 }
-        return max(0, controller.duration - elapsed)
+        guard clock.duration > 0 else { return 0 }
+        return max(0, clock.duration - elapsed)
     }
 
     private var volumeIcon: String {

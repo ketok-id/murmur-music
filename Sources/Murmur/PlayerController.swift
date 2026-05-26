@@ -9,6 +9,20 @@ let kDefaultVideoID = "YmQ7jRgf4f0"
 
 // MARK: - Player controller (shared state + JS bridge)
 
+/// High-frequency playhead state, split off PlayerController into its own
+/// observable. The YouTube iframe posts a `time` event several times a second
+/// during playback; if `currentTime` lived on PlayerController, every one of
+/// those ticks would fire the controller's `objectWillChange` and re-render the
+/// whole menu-bar panel (which observes the controller for title/status/playing
+/// but never shows the playhead). Only the video HUD scrubber and the lyrics
+/// view observe this object, so the ticks stay scoped to what actually moves.
+final class PlaybackClock: ObservableObject {
+    /// Current playhead in seconds, updated from iframe infoDelivery events.
+    @Published var currentTime: Double = 0
+    /// Total video duration in seconds. 0 if unknown or for live streams.
+    @Published var duration: Double = 0
+}
+
 final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     @Published var isPlaying = false
     @Published var isReady = false
@@ -22,10 +36,20 @@ final class PlayerController: NSObject, ObservableObject, WKNavigationDelegate {
     /// Non-empty when the loaded `list=…` looks like a YouTube Mix/Radio (`RD…`).
     /// These are auto-generated and the IFrame embed often refuses to auto-advance them.
     @Published var mixHint: String = ""
-    /// Current playhead in seconds, updated from iframe infoDelivery events.
-    @Published var currentTime: Double = 0
-    /// Total video duration in seconds. 0 if unknown or for live streams.
-    @Published var duration: Double = 0
+    /// Playhead + duration live on their own observable so their frequent
+    /// updates don't re-render the whole panel — see `PlaybackClock`. The
+    /// `currentTime` / `duration` forwarding accessors below keep the existing
+    /// non-reactive call sites (seek, JS bridge writes, lyrics fetch) working;
+    /// reactive consumers (HUD, lyrics) observe `clock` directly.
+    let clock = PlaybackClock()
+    var currentTime: Double {
+        get { clock.currentTime }
+        set { clock.currentTime = newValue }
+    }
+    var duration: Double {
+        get { clock.duration }
+        set { clock.duration = newValue }
+    }
     /// Speed multiplier; 1.0 = normal. YouTube supports 0.25 – 2.0.
     @Published var playbackRate: Double = 1.0 {
         didSet { applyPlaybackRate() }
@@ -482,7 +506,16 @@ final class ScriptHandler: NSObject, WKScriptMessageHandler {
             case "video":
                 if let id = body["videoId"] as? String { c.updateCurrentVideoID(id) }
             case "time":
-                if let t = body["time"] as? Double { c.currentTime = t }
+                if let t = body["time"] as? Double {
+                    // The iframe posts `time` several times a second. Coalesce
+                    // to ~0.5s granularity so the scrubber/labels (the only
+                    // observers) don't churn on sub-second deltas. Backward
+                    // jumps (seek, track change → 0) always pass through so the
+                    // UI snaps to the new position immediately.
+                    if abs(t - c.clock.currentTime) >= 0.5 || t < c.clock.currentTime {
+                        c.clock.currentTime = t
+                    }
+                }
             case "duration":
                 if let d = body["duration"] as? Double, d > 0 { c.duration = d }
             case "error":
