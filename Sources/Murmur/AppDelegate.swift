@@ -140,6 +140,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
+        // World Cup live machinery: the ticker borrows the status item to
+        // show live scores next to the brand icon; the notifier turns
+        // score-poll diffs into macOS notifications (and auto-tunes radio
+        // at followed kick-offs, hence the controller).
+        WorldCupTicker.shared.attach(statusItem)
+        WorldCupNotifier.shared.attach(controller: controller)
+
         // Mask the webview during a stream switch so YouTube's loading
         // overlay / brief flash of the previous stream never shows in
         // the visible video window.
@@ -373,6 +380,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let comp = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         // Accept both murmur://play?v=… and murmur://?v=… for compatibility.
         let action = (comp.host ?? "").lowercased()
+        // murmur://worldcup[?match=<id>] — open the schedule/scores window,
+        // optionally focused on one match. The id is ESPN's numeric event id;
+        // digits-only validation at the trust boundary.
+        if action == "worldcup" {
+            if let match = comp.queryItems?.first(where: { $0.name == "match" })?.value,
+               !match.isEmpty, match.allSatisfy(\.isNumber), match.count <= 12 {
+                WorldCupNavState.shared.targetMatchID = match
+            }
+            mainWindow.show()
+            NotificationCenter.default.post(name: .murmurOpenWorldCup, object: nil)
+            return
+        }
         guard action.isEmpty || action == "play" else { return }
         let q = comp.queryItems ?? []
         guard let v = q.first(where: { $0.name == "v" })?.value, !v.isEmpty else { return }

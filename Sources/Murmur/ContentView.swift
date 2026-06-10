@@ -110,6 +110,7 @@ struct ContentView: View {
                     onOpenPlaylistSheet: { openSheet(id:"playlist") },
                     lyricsAvailable: controller.categoryHint == .music,
                     onOpenLyrics: { openSheet(id:"lyrics") },
+                    onOpenWorldCup: { openSheet(id:"world-cup") },
                     apiKeyConfigured: apiKeyStore.hasYouTubeKey,
                     onOpenSettings: { openSheet(id:"api-key") }
                 )
@@ -120,7 +121,8 @@ struct ContentView: View {
                     canSubmit: canSubmit,
                     favoritesButton: NativeFavoritesMenuButton(
                         controller: controller,
-                        tint: NSColor(MurmurColor.accent)
+                        tint: NSColor(MurmurColor.accent),
+                        onOpenWorldCup: { openSheet(id:"world-cup") }
                     ),
                     onSearch: {
                         YouTubeSearchState.shared.mode = .videos
@@ -165,6 +167,13 @@ struct ContentView: View {
         // close button dismisses just that window (fixes the prior
         // "pressing close on a sheet closed the menu-bar panel" bug) and
         // they can sit side-by-side with the panel.
+        //
+        // `murmur://worldcup` lands here as a notification because
+        // AppDelegate has no `openWindow` environment of its own — this
+        // view does, so it does the opening.
+        .onReceive(NotificationCenter.default.publisher(for: .murmurOpenWorldCup)) { _ in
+            openSheet(id: "world-cup")
+        }
     }
 
     // MARK: - Computed bindings
@@ -387,8 +396,10 @@ private struct HeaderBarView: View {
     let onOpenPlaylistSheet: () -> Void
     let lyricsAvailable: Bool
     let onOpenLyrics: () -> Void
+    let onOpenWorldCup: () -> Void
     let apiKeyConfigured: Bool
     let onOpenSettings: () -> Void
+    @ObservedObject private var worldCup = WorldCupStore.shared
 
     var body: some View {
         HStack(spacing: 8) {
@@ -450,6 +461,13 @@ private struct HeaderBarView: View {
                                help: "Lyrics",
                                action: onOpenLyrics)
                 }
+                IconButton(systemName: "soccerball",
+                           trailingLabel: worldCup.liveCount > 0 ? "\(worldCup.liveCount)" : nil,
+                           tint: worldCup.liveCount > 0 ? Color.red.opacity(0.85) : nil,
+                           help: worldCup.liveCount > 0
+                                ? "World Cup 2026 — \(worldCup.liveCount) match\(worldCup.liveCount == 1 ? "" : "es") live now"
+                                : "World Cup 2026 — schedule, scores & live audio",
+                           action: onOpenWorldCup)
                 IconButton(systemName: "gearshape",
                            tint: apiKeyConfigured ? MurmurColor.accent : nil,
                            help: apiKeyConfigured ? "YouTube API key configured"
@@ -1048,8 +1066,11 @@ struct NativeShareMenuButton: NSViewRepresentable {
 struct NativeFavoritesMenuButton: NSViewRepresentable {
     let controller: PlayerController
     let tint: NSColor
+    let onOpenWorldCup: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(controller: controller, onOpenWorldCup: onOpenWorldCup)
+    }
 
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
@@ -1071,13 +1092,18 @@ struct NativeFavoritesMenuButton: NSViewRepresentable {
 
     func updateNSView(_ button: NSButton, context: Context) {
         context.coordinator.controller = controller
+        context.coordinator.onOpenWorldCup = onOpenWorldCup
         button.contentTintColor = tint
     }
 
     final class Coordinator: NSObject {
         var controller: PlayerController
+        var onOpenWorldCup: () -> Void
 
-        init(controller: PlayerController) { self.controller = controller }
+        init(controller: PlayerController, onOpenWorldCup: @escaping () -> Void) {
+            self.controller = controller
+            self.onOpenWorldCup = onOpenWorldCup
+        }
 
         @objc func onClick(_ sender: NSButton) {
             let menu = buildMenu()
@@ -1141,6 +1167,17 @@ struct NativeFavoritesMenuButton: NSViewRepresentable {
             discoverRoot.submenu = discoverSub
             menu.addItem(discoverRoot)
 
+            // World Cup hub — opens the schedule/scores window, which is
+            // where the live audio sources live (resolved fresh per click,
+            // so nothing here goes stale like a hardcoded videoID would).
+            let worldCup = NSMenuItem(title: worldCupTitle(),
+                                      action: #selector(openWorldCup(_:)),
+                                      keyEquivalent: "")
+            worldCup.target = self
+            worldCup.image = NSImage(systemSymbolName: "soccerball",
+                                     accessibilityDescription: "World Cup")
+            menu.addItem(worldCup)
+
             menu.addItem(.separator())
 
             let save = NSMenuItem(title: "Save current as favorite",
@@ -1155,6 +1192,16 @@ struct NativeFavoritesMenuButton: NSViewRepresentable {
 
         private func label(name: String, videoID: String) -> String {
             videoID == controller.currentVideoID ? "● \(name)" : "   \(name)"
+        }
+
+        private func worldCupTitle() -> String {
+            let live = WorldCupStore.shared.liveCount
+            return live > 0 ? "World Cup 2026 — \(live) live now"
+                            : "World Cup 2026 — schedule & scores"
+        }
+
+        @objc private func openWorldCup(_ sender: NSMenuItem) {
+            onOpenWorldCup()
         }
 
         @objc private func loadFavorite(_ sender: NSMenuItem) {

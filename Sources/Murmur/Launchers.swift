@@ -11,6 +11,12 @@ extension Notification.Name {
     /// leaves a single notification post as the lever if a sheet ever
     /// gets stuck in a future regression.
     static let murmurDismissPopoverSheets = Notification.Name("murmur.dismissPopoverSheets")
+
+    /// Posted by `AppDelegate.handleDeepLink` for `murmur://worldcup`.
+    /// `ContentView` listens and opens the `world-cup` Window scene —
+    /// AppDelegate can't call `openWindow(id:)` itself (no SwiftUI
+    /// environment outside view bodies).
+    static let murmurOpenWorldCup = Notification.Name("murmur.openWorldCup")
 }
 
 // MARK: - Booth launcher (SwiftUI bridge)
