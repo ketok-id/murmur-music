@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import WebKit
 
 /// Floating window playing any iptv-org directory channel — the generic
@@ -15,22 +16,59 @@ final class LiveTVWindow: NSObject, ObservableObject {
 
     private var window: NSWindow?
     private var webView: WKWebView?
+    private var playerView: AVPlayerView?
+    private var avPlayer: AVPlayer?
 
     func show(channel: IPTVChannel) {
         let window = ensureWindow()
         window.title = "\(channel.name) — Live"
         currentID = channel.id
-        ensureWebView().loadHTMLString(
-            Self.playerHTML(stream: channel.streamURL),
-            baseURL: channel.streamURL
-        )
-        for delay in [0.8, 2.0, 4.0, 7.0, 12.0, 18.0, 25.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.kickPlayback()
+
+        if channel.streamURL.scheme == "http" {
+            // Plain-http streams never load in the webview — WebKit's media
+            // stack ignores the app's NSAllowsArbitraryLoadsForMedia
+            // exception (observed: readyState stays 0, no error fired).
+            // AVPlayer honors it, so http channels play in a native
+            // AVPlayerView instead.
+            webView?.isHidden = true
+            webView?.loadHTMLString("", baseURL: nil)
+            let pv = ensurePlayerView()
+            pv.isHidden = false
+            let player = AVPlayer(url: channel.streamURL)
+            pv.player = player
+            avPlayer = player
+            player.play()
+        } else {
+            avPlayer?.pause()
+            avPlayer = nil
+            playerView?.player = nil
+            playerView?.isHidden = true
+            let web = ensureWebView()
+            web.isHidden = false
+            web.loadHTMLString(
+                Self.playerHTML(stream: channel.streamURL),
+                baseURL: channel.streamURL
+            )
+            for delay in [0.8, 2.0, 4.0, 7.0, 12.0, 18.0, 25.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.kickPlayback()
+                }
             }
         }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func ensurePlayerView() -> AVPlayerView {
+        if let playerView { return playerView }
+        guard let window else { fatalError("ensureWindow() must run first") }
+        let pv = AVPlayerView(frame: window.contentView?.bounds ?? .zero)
+        pv.autoresizingMask = [.width, .height]
+        pv.controlsStyle = .floating
+        pv.videoGravity = .resizeAspect
+        window.contentView?.addSubview(pv)
+        playerView = pv
+        return pv
     }
 
     private func kickPlayback() {
@@ -123,6 +161,9 @@ final class LiveTVWindow: NSObject, ObservableObject {
 extension LiveTVWindow: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         webView?.load(URLRequest(url: URL(string: "about:blank")!))
+        avPlayer?.pause()
+        avPlayer = nil
+        playerView?.player = nil
         currentID = nil
         return true
     }
