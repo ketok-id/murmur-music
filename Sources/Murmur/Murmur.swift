@@ -73,7 +73,7 @@ struct MurmurApp: App {
         }
         .windowResizability(.contentSize)
 
-        Window("API Key", id: "api-key") {
+        Window("Settings", id: "api-key") {
             APIKeySetupSheet()
         }
         .windowResizability(.contentSize)

@@ -99,9 +99,7 @@ struct YouTubeSearchSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        if !apiKeyStore.hasYouTubeKey {
-            noKeyState
-        } else if let channel = browsing {
+        if let channel = browsing {
             ChannelBrowseView(
                 channel: channel,
                 onPickVideo: { video in
@@ -144,14 +142,6 @@ struct YouTubeSearchSheet: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-    }
-
-    private var noKeyState: some View {
-        EmptyStateView(
-            systemImage: "key.slash",
-            title: "No YouTube API key configured.",
-            helper: "Open the gear in the popover header to add one."
-        )
     }
 
     @ViewBuilder
@@ -385,7 +375,8 @@ struct YouTubeSearchSheet: View {
     }
 
     private var canSearch: Bool {
-        apiKeyStore.hasYouTubeKey &&
+        // No key required — YouTubeSearchAPI falls back to the key-less
+        // scraper when APIKeyStore is empty.
         !draftQuery.trimmingCharacters(in: .whitespaces).isEmpty
     }
 

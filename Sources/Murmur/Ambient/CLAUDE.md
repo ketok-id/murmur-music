@@ -12,6 +12,7 @@ All keys are namespaced under `youtube-audio-widget.`. Bump the version suffix (
 | `youtube-audio-widget.userPlaylists.v1` | `UserPlaylistsStore` | Local named playlists. `activeID` / `activeIndex` persist via `didSet → save()` so relaunch resumes inside the same playlist at the same cursor. |
 | `youtube-audio-widget.lastSession.v1` | `LastSessionStore` | Snapshots `currentVideoID` + `currentPlaylistID` on every video change. |
 | `youtube-audio-widget.videoWindow.pinned` | `VideoWindowController` | Pin-to-all-Spaces toggle. Read before first window show. |
+| `youtube-audio-widget.sponsorblock.enabled` / `.categories` | `SponsorBlockStore` | Auto-skip toggle (default off) + chosen category ids. Segment cache is in-memory only; segments are fetched for ALL categories and filtered at skip time, so toggling a category never refetches. |
 
 Other stores in this directory (`PlayedVideoHistoryStore`, `PlaylistStore`, `TrendingRegionStore`, `SearchHistoryStore`, `APIKeyStore`, `ChannelFavoritesStore`, `QuotaTracker`, `PlaybackQueue`) follow the same pattern — `.shared` singleton, UserDefaults-backed, key prefix `youtube-audio-widget.`.
 
@@ -34,6 +35,17 @@ Other stores in this directory (`PlayedVideoHistoryStore`, `PlaylistStore`, `Tre
 - **`UserPlaylistsStore`** (this directory): local, named, never round-trips to YouTube. End-of-playlist behavior in `PlayerController.playNext` / `playPrev` / `onEnded` is **stop** — no fall-through to trending, since the curated set is the explicit contract.
 - **`PlaylistStore`** (this directory): mirrors a YouTube `&list=…` URL via the Data API.
 - A Combine sink in `AppDelegate` on `$currentVideoID` deactivates the user playlist whenever the playing video isn't in its items — that's how "user pasted a different URL" implicitly exits playlist mode.
+
+## Key-less search (`YouTubeSearchScraper`)
+
+`YouTubeSearchAPI` delegates to `YouTubeSearchScraper` whenever its `apiKey` argument is empty, so search works with zero setup:
+
+- **Search + channel search**: parse the `ytInitialData` JSON embedded in `/results` HTML (`videoRenderer` / `channelRenderer`), browser UA + `CONSENT` cookie. First page only (~20 results), durations inline from `lengthText`.
+- **Playlists + channel uploads** (`listChannelUploads` / `fetchPlaylistItems`): POST the public InnerTube `youtubei/v1/browse` endpoint with `browseId: VL<playlistId>` — logged-out playlist HTML no longer embeds items; the browse response carries them as `lockupViewModel`s (~100 items, `nextPageToken` always nil).
+- **Channel resolution** (`fetchChannelDetails` / `fetchChannelByHandle`): channel-page scrape (`"channelId":"UC…"` + og: tags); the uploads playlist is derived via the stable `UC…` → `UU…` prefix swap, no extra request.
+- **No key-less trending** — YouTube retired the public `/feed/trending` (verified June 2026, the feed ships empty); `fetchTrending` throws `SearchError.keylessUnsupported` and `TrendingView` shows that message.
+- `fetchVideoDetails` returns `[:]` key-less (call sites only overwrite durations for ids present in the dict, so inline scraper durations survive).
+- `QuotaTracker` only ticks on real Data API calls — scraper traffic is quota-free.
 
 ## UpdateChecker
 

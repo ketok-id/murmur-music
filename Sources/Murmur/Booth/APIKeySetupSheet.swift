@@ -6,11 +6,12 @@ struct APIKeySetupSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var draftKey: String = ""
+    @State private var launchAtLogin = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("YouTube API Key")
+                Text("Settings")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button(action: { dismiss() }) {
@@ -20,7 +21,32 @@ struct APIKeySetupSheet: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Required for live YouTube search. Free for up to ~100 searches/day on Google's free tier. Setup takes ~5 minutes — see the link below.")
+            // Launch-at-login only exists for the bundled .app — the
+            // `swift run` dev binary has no bundle to register.
+            if LaunchAtLogin.isAvailable {
+                Toggle("Launch Murmur at login", isOn: $launchAtLogin)
+                    .font(.system(size: 11))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .onChange(of: launchAtLogin) { enabled in
+                        guard enabled != LaunchAtLogin.isEnabled else { return }
+                        if !LaunchAtLogin.set(enabled) {
+                            // Registration denied/failed — resync the switch.
+                            launchAtLogin = LaunchAtLogin.isEnabled
+                        }
+                    }
+
+                Divider().background(Color.white.opacity(0.1))
+            }
+
+            sponsorBlockSection
+
+            Divider().background(Color.white.opacity(0.1))
+
+            Text("YouTube API Key")
+                .font(.system(size: 12, weight: .semibold))
+
+            Text("Optional — search, channels and playlists work without a key via Murmur's built-in scraper. A key adds YouTube's Trending charts, result pagination, and richer metadata. Free for ~100 searches/day on Google's free tier.")
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
@@ -76,7 +102,40 @@ struct APIKeySetupSheet: View {
         .padding(18)
         .frame(width: 380)
         .background(Color(white: 0.05))
-        .onAppear { draftKey = store.youtubeKey }
+        .onAppear {
+            draftKey = store.youtubeKey
+            launchAtLogin = LaunchAtLogin.isEnabled
+        }
+    }
+
+    @ObservedObject private var sponsorBlock = SponsorBlockStore.shared
+
+    private var sponsorBlockSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Auto-skip sponsored segments", isOn: $sponsorBlock.enabled)
+                .font(.system(size: 11))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+
+            if sponsorBlock.enabled {
+                ForEach(SponsorBlockStore.allCategories, id: \.id) { category in
+                    Toggle(category.label, isOn: Binding(
+                        get: { sponsorBlock.categories.contains(category.id) },
+                        set: { _ in sponsorBlock.toggleCategory(category.id) }
+                    ))
+                    .font(.system(size: 10))
+                    .toggleStyle(.checkbox)
+                    .padding(.leading, 8)
+                }
+            }
+
+            Link(destination: URL(string: "https://sponsor.ajay.app")!) {
+                Text("Crowd-sourced timestamps from SponsorBlock (CC BY-NC-SA 4.0)")
+                    .font(.system(size: 9))
+                    .foregroundColor(.white.opacity(0.4))
+                    .underline()
+            }
+        }
     }
 
     private var quotaSection: some View {

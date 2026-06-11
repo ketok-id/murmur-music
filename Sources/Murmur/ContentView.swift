@@ -470,8 +470,8 @@ private struct HeaderBarView: View {
                            action: onOpenWorldCup)
                 IconButton(systemName: "gearshape",
                            tint: apiKeyConfigured ? MurmurColor.accent : nil,
-                           help: apiKeyConfigured ? "YouTube API key configured"
-                                                  : "Configure YouTube API key",
+                           help: apiKeyConfigured ? "Settings — YouTube API key configured"
+                                                  : "Settings — launch at login, YouTube API key",
                            action: onOpenSettings)
             }
         }
@@ -870,6 +870,7 @@ private struct FooterControlsView: View {
     let versionLabel: AnyView
     let mixHint: String
     let onQuit: () -> Void
+    @ObservedObject private var sleepTimer = SleepTimer.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -919,6 +920,34 @@ private struct FooterControlsView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Playback speed")
+
+                // Sleep timer — same compact borderless-menu treatment as the
+                // speed picker. Counts down in place while armed.
+                Menu {
+                    if sleepTimer.isActive {
+                        Button("Turn off") { sleepTimer.cancel() }
+                        Divider()
+                    }
+                    ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
+                        Button("\(minutes) minutes") { sleepTimer.start(minutes: minutes) }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: sleepTimer.isActive ? "moon.fill" : "moon")
+                            .font(.system(size: 11, weight: .bold))
+                        if sleepTimer.isActive {
+                            Text(sleepTimer.remainingLabel)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        }
+                    }
+                    .foregroundStyle(sleepTimer.isActive ? MurmurColor.accent : MurmurColor.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help(sleepTimer.isActive
+                      ? "Sleep timer — fades out and pauses in \(sleepTimer.remainingLabel)"
+                      : "Sleep timer — fade out and pause after a delay")
             }
 
             HStack(spacing: 6) {

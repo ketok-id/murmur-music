@@ -17,6 +17,7 @@ enum YouTubeSearchAPI {
         case noAPIKey
         case quotaExceeded
         case invalidKey
+        case keylessUnsupported
         case network(String)
         case decode(String)
 
@@ -25,17 +26,27 @@ enum YouTubeSearchAPI {
             case .noAPIKey:        return "No YouTube API key configured."
             case .quotaExceeded:   return "Daily search quota exceeded. Try again tomorrow."
             case .invalidKey:      return "API key rejected by YouTube. Check it in Settings."
+            case .keylessUnsupported:
+                return "YouTube retired its public trending feed — Trending needs an API key. Search still works without one."
             case .network(let m):  return "Network error: \(m)"
             case .decode(let m):   return "Couldn't read YouTube's response: \(m)"
             }
         }
     }
 
+    /// Wrap a key-less scrape so call sites keep seeing `SearchError`.
+    private static func scraped<T>(_ work: () async throws -> T) async throws -> T {
+        do { return try await work() }
+        catch { throw SearchError.network("key-less mode — \(error.localizedDescription)") }
+    }
+
     static func search(query: String, apiKey: String, maxResults: Int = 10) async throws -> [YTSearchResult] {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
         guard !trimmedQuery.isEmpty else { return [] }
+        if trimmedKey.isEmpty {
+            return try await scraped { try await YouTubeSearchScraper.search(query: trimmedQuery, maxResults: max(maxResults, 20)) }
+        }
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/search")!
         components.queryItems = [
@@ -95,8 +106,10 @@ enum YouTubeSearchAPI {
     static func searchChannels(query: String, apiKey: String, maxResults: Int = 10) async throws -> [YTChannelResult] {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedQuery = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
         guard !trimmedQuery.isEmpty else { return [] }
+        if trimmedKey.isEmpty {
+            return try await scraped { try await YouTubeSearchScraper.searchChannels(query: trimmedQuery, maxResults: maxResults) }
+        }
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/search")!
         components.queryItems = [
@@ -131,7 +144,9 @@ enum YouTubeSearchAPI {
     /// Fetch a channel's title, thumbnail, and uploadsPlaylistId.
     static func fetchChannelDetails(channelId: String, apiKey: String) async throws -> (title: String, thumbnailURL: URL?, uploadsPlaylistId: String) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        if trimmedKey.isEmpty {
+            return try await scraped { try await YouTubeSearchScraper.channelDetails(channelId: channelId) }
+        }
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/channels")!
         components.queryItems = [
@@ -167,7 +182,9 @@ enum YouTubeSearchAPI {
     /// 1 quota unit (same as fetchChannelDetails).
     static func fetchChannelByHandle(handle: String, apiKey: String) async throws -> (channelId: String, title: String, thumbnailURL: URL?, uploadsPlaylistId: String) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        if trimmedKey.isEmpty {
+            return try await scraped { try await YouTubeSearchScraper.channelByHandle(handle) }
+        }
         let cleanHandle = handle.hasPrefix("@") ? handle : "@" + handle
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/channels")!
@@ -215,8 +232,12 @@ enum YouTubeSearchAPI {
     /// an optional nextPageToken for further pagination.
     static func listChannelUploads(uploadsPlaylistId: String, apiKey: String, pageToken: String? = nil) async throws -> (videos: [YTSearchResult], nextPageToken: String?) {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
         guard !uploadsPlaylistId.isEmpty else { return ([], nil) }
+        if trimmedKey.isEmpty {
+            // First page only — InnerTube returns ~100 items, no pageToken.
+            let videos = try await scraped { try await YouTubeSearchScraper.playlistItems(playlistId: uploadsPlaylistId) }
+            return (videos: videos, nextPageToken: nil)
+        }
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/playlistItems")!
         var items = [
@@ -262,7 +283,9 @@ enum YouTubeSearchAPI {
     /// YouTube only publishes a chart where there's enough localized data.
     static func fetchTrending(regionCode: String, apiKey: String, categoryId: String = "", maxResults: Int = 25) async throws -> [YTSearchResult] {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        // No key-less path: YouTube's public /feed/trending now ships an
+        // empty feed (verified June 2026), so honesty beats a fake chart.
+        guard !trimmedKey.isEmpty else { throw SearchError.keylessUnsupported }
         let region = regionCode.isEmpty ? "US" : regionCode.uppercased()
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/videos")!
@@ -308,7 +331,9 @@ enum YouTubeSearchAPI {
     static func fetchVideoDetails(ids: [String], apiKey: String) async throws -> [String: (duration: TimeInterval, categoryId: String)] {
         guard !ids.isEmpty else { return [:] }
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedKey.isEmpty else { throw SearchError.noAPIKey }
+        // Key-less search results already carry durations inline where the
+        // markup has them; returning empty leaves those untouched.
+        guard !trimmedKey.isEmpty else { return [:] }
 
         var components = URLComponents(string: "https://www.googleapis.com/youtube/v3/videos")!
         components.queryItems = [

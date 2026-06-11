@@ -80,6 +80,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lyricsVideoCancellable: AnyCancellable?
     private var lyricsCategoryCancellable: AnyCancellable?
 
+    /// Media keys + Control Center tile. Holds its own Combine sinks on
+    /// `controller`; constructed (and kept alive) in `didFinishLaunching`.
+    private var nowPlaying: NowPlayingBridge?
+    /// SponsorBlock auto-skip position loop; same lifecycle as `nowPlaying`.
+    private var sponsorSkipper: SponsorSkipper?
+
     /// Demote to `.accessory` *before* AppKit registers with the Dock
     /// manager — `applicationWillFinishLaunching` is the earliest
     /// delegate hook and runs before AppKit reads the default
@@ -275,6 +281,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        hint: hint)
                 }
             }
+
+        // System integrations: hardware media keys / Control Center tile,
+        // SponsorBlock auto-skip, and the sleep timer's pause hook
+        // (post-init injection, same pattern as WindowOpenerBridge).
+        nowPlaying = NowPlayingBridge(controller: controller)
+        sponsorSkipper = SponsorSkipper(controller: controller)
+        SleepTimer.shared.controller = controller
 
         // Surface the main window now that the launch contract is wired.
         mainWindow.show()
