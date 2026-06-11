@@ -37,27 +37,46 @@ final class NowPlayingBridge {
     private func installRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
 
+        // When a radio station is loaded, transport commands act on the
+        // RadioPlayer instead of the YouTube iframe.
         center.playCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.controller.play() }
+            DispatchQueue.main.async {
+                if RadioPlayer.shared.station != nil { RadioPlayer.shared.resume() }
+                else { self?.controller.play() }
+            }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.controller.pause() }
+            DispatchQueue.main.async {
+                if RadioPlayer.shared.station != nil { RadioPlayer.shared.pause() }
+                else { self?.controller.pause() }
+            }
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
             DispatchQueue.main.async {
+                let radio = RadioPlayer.shared
+                if radio.station != nil {
+                    radio.isPlaying ? radio.pause() : radio.resume()
+                    return
+                }
                 guard let controller = self?.controller else { return }
                 controller.isPlaying ? controller.pause() : controller.play()
             }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.controller.playNext() }
+            DispatchQueue.main.async {
+                guard RadioPlayer.shared.station == nil else { return }
+                self?.controller.playNext()
+            }
             return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            DispatchQueue.main.async { self?.controller.playPrev() }
+            DispatchQueue.main.async {
+                guard RadioPlayer.shared.station == nil else { return }
+                self?.controller.playPrev()
+            }
             return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
@@ -113,9 +132,38 @@ final class NowPlayingBridge {
             .throttle(for: .seconds(3), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak self] _ in self?.pushInfo() }
             .store(in: &cancellables)
+
+        // Radio takes over the tile while a station is loaded.
+        RadioPlayer.shared.$station
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.pushInfo() }
+            .store(in: &cancellables)
+        RadioPlayer.shared.$isPlaying
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] playing in
+                guard RadioPlayer.shared.station != nil else { return }
+                MPNowPlayingInfoCenter.default().playbackState = playing ? .playing : .paused
+                self?.pushInfo()
+            }
+            .store(in: &cancellables)
     }
 
     private func pushInfo() {
+        // Radio mode: station name, live, no scrubbing.
+        if let station = RadioPlayer.shared.station {
+            var info: [String: Any] = [
+                MPMediaItemPropertyTitle: station.name,
+                MPMediaItemPropertyArtist: "Internet Radio",
+                MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+                MPNowPlayingInfoPropertyIsLiveStream: true,
+                MPNowPlayingInfoPropertyPlaybackRate: RadioPlayer.shared.isPlaying ? 1.0 : 0.0,
+            ]
+            if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+            return
+        }
+
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: controller.title,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,

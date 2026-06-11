@@ -76,9 +76,15 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSQuitAlwaysKeepsWindows</key><false/>
   <key>NSHighResolutionCapable</key><true/>
-  <!-- ATS is left at its (strict) defaults. Every outbound URL in the
-       codebase is HTTPS — lrclib.net, googleapis.com, api.github.com,
-       youtube-nocookie.com — so the bypass is unnecessary. -->
+  <!-- ATS stays strict for ordinary requests (every API URL in the
+       codebase is HTTPS). The single, scoped exception is MEDIA loads:
+       many radio-browser.info station streams are plain http://, and
+       NSAllowsArbitraryLoadsForMedia lets AVFoundation (RadioPlayer)
+       play them without opening http for URLSession traffic. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoadsForMedia</key><true/>
+  </dict>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

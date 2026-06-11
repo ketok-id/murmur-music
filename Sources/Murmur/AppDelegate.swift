@@ -291,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sponsorSkipper = SponsorSkipper(controller: controller)
         listeningRecorder = ListeningRecorder(controller: controller)
         SleepTimer.shared.controller = controller
+        RadioPlayer.shared.controller = controller
         MiniPillPanel.shared.controller = controller
         MiniPillPanel.shared.restoreIfWanted()
 

@@ -57,6 +57,7 @@ final class SleepTimer: ObservableObject {
             timer?.invalidate()
             timer = nil
             controller?.pause()
+            RadioPlayer.shared.pause()
             // Restore after the pause lands — the iframe accepts setVolume
             // while paused, and the saved level greets the next play.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -68,7 +69,9 @@ final class SleepTimer: ObservableObject {
         if remaining <= Self.fadeWindow, let controller {
             if preFadeVolume == nil { preFadeVolume = Int(controller.volume) }
             if let base = preFadeVolume {
-                controller.setVolume(Int(Double(base) * Double(remaining) / Double(Self.fadeWindow)))
+                let faded = Int(Double(base) * Double(remaining) / Double(Self.fadeWindow))
+                controller.setVolume(faded)
+                RadioPlayer.shared.setVolume(faded)
             }
         }
     }
@@ -76,6 +79,7 @@ final class SleepTimer: ObservableObject {
     private func restoreVolumeIfNeeded() {
         if let v = preFadeVolume {
             controller?.setVolume(v)
+            RadioPlayer.shared.setVolume(v)
             preFadeVolume = nil
         }
     }

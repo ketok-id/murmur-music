@@ -21,13 +21,14 @@ struct YouTubeSearchSheet: View {
     @FocusState private var searchFocused: Bool
 
     enum Mode: String, CaseIterable, Identifiable {
-        case videos, trending, channels
+        case videos, trending, channels, radio
         var id: String { rawValue }
         var label: String {
             switch self {
             case .videos: return "Videos"
             case .trending: return "Trending"
             case .channels: return "Channels"
+            case .radio: return "Radio"
             }
         }
     }
@@ -50,7 +51,8 @@ struct YouTubeSearchSheet: View {
                     PopoverSearchField(
                         placeholder: mode == .videos
                             ? "e.g. lofi study, synthwave radio, ocean waves…"
-                            : "Channel name (e.g. lofi girl)",
+                            : (mode == .radio ? "Station name (e.g. smooth jazz, Prambors)…"
+                                              : "Channel name (e.g. lofi girl)"),
                         text: $draftQuery,
                         onSearch: activate,
                         canSearch: canSearch
@@ -140,6 +142,10 @@ struct YouTubeSearchSheet: View {
                     }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .radio:
+                // Browse + search live in one view (empty query = chips).
+                RadioBrowseView(query: activeQuery)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
@@ -384,6 +390,8 @@ struct YouTubeSearchSheet: View {
         guard canSearch else { return }
         let trimmed = draftQuery.trimmingCharacters(in: .whitespaces)
         activeQuery = trimmed
+        // Radio searches stay out of the (videos/channels) history store.
+        guard mode != .radio else { return }
         SearchHistoryStore.shared.record(
             query: trimmed,
             mode: mode == .videos ? .videos : .channels
