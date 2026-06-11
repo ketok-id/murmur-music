@@ -61,13 +61,25 @@ final class TVRIWindow: NSObject {
     }
 
     private static let kChannel = "youtube-audio-widget.worldcup.tvriChannel"
+    private static let kQuality = "youtube-audio-widget.worldcup.tvriQuality"
+
+    /// Pinnable rendition heights. **480 is the default on purpose**: TVRI
+    /// puts a rights slate (station logo card) on the higher renditions
+    /// during protected events while the real broadcast stays on 854×480 —
+    /// WebKit's auto ABR climbs straight to 1080p and lands on the slate.
+    static let qualities = ["Auto", "240p", "360p", "480p", "720p", "1080p"]
 
     private var window: NSWindow?
     private var webView: WKWebView?
     private var channelControl: NSSegmentedControl?
+    private var qualityControl: NSPopUpButton?
 
     private(set) var channel: Channel = Channel(
         rawValue: UserDefaults.standard.string(forKey: kChannel) ?? "") ?? .nasional
+
+    /// "Auto" or a `qualities` entry; persisted.
+    private(set) var quality: String =
+        UserDefaults.standard.string(forKey: kQuality) ?? "480p"
 
     /// Show the window on `channel` (nil = last used).
     func show(channel requested: Channel? = nil) {
@@ -120,8 +132,28 @@ final class TVRIWindow: NSObject {
         w.addTitlebarAccessoryViewController(accessory)
         channelControl = control
 
+        // Quality pin next to it (see `qualities` doc for why 480p default).
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.addItems(withTitles: Self.qualities)
+        popup.target = self
+        popup.action = #selector(qualityPicked(_:))
+        popup.controlSize = .small
+        popup.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        popup.selectItem(withTitle: quality)
+        let qualityAccessory = NSTitlebarAccessoryViewController()
+        qualityAccessory.view = popup
+        qualityAccessory.layoutAttribute = .trailing
+        w.addTitlebarAccessoryViewController(qualityAccessory)
+        qualityControl = popup
+
         self.window = w
         return w
+    }
+
+    @objc private func qualityPicked(_ sender: NSPopUpButton) {
+        quality = sender.titleOfSelectedItem ?? "Auto"
+        UserDefaults.standard.set(quality, forKey: Self.kQuality)
+        loadStream()
     }
 
     @objc private func channelPicked(_ sender: NSSegmentedControl) {
@@ -139,21 +171,66 @@ final class TVRIWindow: NSObject {
     private func loadStream() {
         window?.title = "TVRI \(channel.label) — Live"
         let web = ensureWebView()
-        web.loadHTMLString(
-            Self.playerHTML(stream: channel.streamURL),
-            baseURL: URL(string: "https://ott-balancer.tvri.go.id")
-        )
-        // WebKit refuses the page's own un-gestured play() — even muted —
-        // on loadHTMLString pages, but JS injected via evaluateJavaScript
-        // runs with user-activation privileges (the same reason the YouTube
-        // bridge's ytCmd calls work). Kick playback a few times while the
-        // stream buffers; each kick is a no-op once playing, and the last
-        // one fires well before a human could reach the pause button.
-        for delay in [0.8, 2.0, 4.0, 7.0, 12.0, 18.0, 25.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.kickPlayback()
+        let master = channel.streamURL
+        let pinnedHeight = Int(quality.dropLast(quality.hasSuffix("p") ? 1 : 0))
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Pin to one rendition by resolving the master ladder fresh each
+            // load (the variant URLs carry per-session tokens, so they can't
+            // be hardcoded). Falls back to the master (auto ABR) on failure.
+            var stream = master
+            if let pinnedHeight,
+               let variant = await Self.variantURL(master: master, height: pinnedHeight) {
+                stream = variant
+            }
+            // Re-check the user didn't switch channels mid-resolve.
+            guard self.channel.streamURL == master else { return }
+            web.loadHTMLString(
+                Self.playerHTML(stream: stream),
+                baseURL: URL(string: "https://ott-balancer.tvri.go.id")
+            )
+            // WebKit refuses the page's own un-gestured play() — even muted —
+            // on loadHTMLString pages, but JS injected via evaluateJavaScript
+            // runs with user-activation privileges (the same reason the
+            // YouTube bridge's ytCmd calls work). Kick playback while the
+            // stream buffers; each kick is a no-op once playing, and the
+            // long tail covers the error-retry reloads.
+            for delay in [0.8, 2.0, 4.0, 7.0, 12.0, 18.0, 25.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.kickPlayback()
+                }
             }
         }
+    }
+
+    /// Fetch + parse the master playlist and return the variant whose
+    /// RESOLUTION height is closest to `height`.
+    private static func variantURL(master: URL, height: Int) async -> URL? {
+        guard let (data, _) = try? await URLSession.shared.data(from: master),
+              let text = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        let lines = text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        var best: (diff: Int, url: URL)? = nil
+        var i = 0
+        while i < lines.count {
+            let line = lines[i]
+            if line.hasPrefix("#EXT-X-STREAM-INF"),
+               let match = line.range(of: #"RESOLUTION=\d+x(\d+)"#, options: .regularExpression),
+               let h = Int(String(line[match]).split(separator: "x").last ?? "") {
+                var j = i + 1
+                while j < lines.count, lines[j].isEmpty || lines[j].hasPrefix("#") { j += 1 }
+                if j < lines.count, let url = URL(string: lines[j], relativeTo: master)?.absoluteURL {
+                    let diff = abs(h - height)
+                    if best == nil || diff < best!.diff { best = (diff, url) }
+                }
+                i = j
+            }
+            i += 1
+        }
+        return best?.url
     }
 
     private func kickPlayback() {
