@@ -85,6 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var nowPlaying: NowPlayingBridge?
     /// SponsorBlock auto-skip position loop; same lifecycle as `nowPlaying`.
     private var sponsorSkipper: SponsorSkipper?
+    /// Listened-seconds accumulation + ListenBrainz listen timing.
+    private var listeningRecorder: ListeningRecorder?
 
     /// Demote to `.accessory` *before* AppKit registers with the Dock
     /// manager — `applicationWillFinishLaunching` is the earliest
@@ -287,7 +289,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (post-init injection, same pattern as WindowOpenerBridge).
         nowPlaying = NowPlayingBridge(controller: controller)
         sponsorSkipper = SponsorSkipper(controller: controller)
+        listeningRecorder = ListeningRecorder(controller: controller)
         SleepTimer.shared.controller = controller
+        MiniPillPanel.shared.controller = controller
+        MiniPillPanel.shared.restoreIfWanted()
 
         // Surface the main window now that the launch contract is wired.
         mainWindow.show()
@@ -485,6 +490,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ n: Notification) {
         mixer.graph.stop()
+        // Listening totals persist on a throttle; catch the tail.
+        ListeningStatsStore.shared.flush()
     }
 
     // Audio must keep playing when the main window closes.

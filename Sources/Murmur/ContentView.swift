@@ -871,6 +871,7 @@ private struct FooterControlsView: View {
     let mixHint: String
     let onQuit: () -> Void
     @ObservedObject private var sleepTimer = SleepTimer.shared
+    @ObservedObject private var pill = MiniPillPanel.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -948,6 +949,15 @@ private struct FooterControlsView: View {
                 .help(sleepTimer.isActive
                       ? "Sleep timer — fades out and pauses in \(sleepTimer.remainingLabel)"
                       : "Sleep timer — fade out and pause after a delay")
+
+                Button { pill.toggle() } label: {
+                    Image(systemName: pill.visible ? "rectangle.inset.bottomright.filled"
+                                                   : "rectangle.inset.bottomright")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(pill.visible ? MurmurColor.accent : MurmurColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Mini player — a floating now-playing pill above every app")
             }
 
             HStack(spacing: 6) {

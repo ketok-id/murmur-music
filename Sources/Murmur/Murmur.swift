@@ -84,6 +84,12 @@ struct MurmurApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Listening Stats", id: "stats") {
+            StatsSheet()
+                .environmentObject(delegate.controller)
+        }
+        .windowResizability(.contentSize)
+
         Window("World Cup 2026", id: "world-cup") {
             WorldCupSheet()
                 .environmentObject(delegate.controller)

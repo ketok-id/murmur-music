@@ -12,6 +12,9 @@ All keys are namespaced under `youtube-audio-widget.`. Bump the version suffix (
 | `youtube-audio-widget.userPlaylists.v1` | `UserPlaylistsStore` | Local named playlists. `activeID` / `activeIndex` persist via `didSet → save()` so relaunch resumes inside the same playlist at the same cursor. |
 | `youtube-audio-widget.lastSession.v1` | `LastSessionStore` | Snapshots `currentVideoID` + `currentPlaylistID` on every video change. |
 | `youtube-audio-widget.videoWindow.pinned` | `VideoWindowController` | Pin-to-all-Spaces toggle. Read before first window show. |
+| `youtube-audio-widget.listeningStats.tracks.v1` / `.daily.v1` | `ListeningStatsStore` | Listened seconds per track (top 300) and per local day (~13 months). Writes throttled to one per ~20s of listening; `flush()` from `applicationWillTerminate`. |
+| `youtube-audio-widget.listenbrainz.token` | `ListenBrainzStore` | User's personal ListenBrainz token (empty = scrobbling off). Submission timing lives in `ListeningRecorder`, not here. |
+| `youtube-audio-widget.miniPill.visible` | `MiniPillPanel` (root) | Floating pill visibility, restored at launch after controller injection. |
 | `youtube-audio-widget.sponsorblock.enabled` / `.categories` | `SponsorBlockStore` | Auto-skip toggle (default off) + chosen category ids. Segment cache is in-memory only; segments are fetched for ALL categories and filtered at skip time, so toggling a category never refetches. |
 
 Other stores in this directory (`PlayedVideoHistoryStore`, `PlaylistStore`, `TrendingRegionStore`, `SearchHistoryStore`, `APIKeyStore`, `ChannelFavoritesStore`, `QuotaTracker`, `PlaybackQueue`) follow the same pattern — `.shared` singleton, UserDefaults-backed, key prefix `youtube-audio-widget.`.

@@ -43,6 +43,23 @@ struct APIKeySetupSheet: View {
 
             Divider().background(Color.white.opacity(0.1))
 
+            listenBrainzSection
+
+            Button {
+                openWindow(id: "stats")
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.bar")
+                    Text("Listening stats…")
+                }
+                .font(.system(size: 11))
+                .foregroundColor(.cyan)
+            }
+            .buttonStyle(.plain)
+            .help("Local listening time — today, last 14 days, most-played tracks")
+
+            Divider().background(Color.white.opacity(0.1))
+
             Text("YouTube API Key")
                 .font(.system(size: 12, weight: .semibold))
 
@@ -105,10 +122,73 @@ struct APIKeySetupSheet: View {
         .onAppear {
             draftKey = store.youtubeKey
             launchAtLogin = LaunchAtLogin.isEnabled
+            draftLBToken = listenBrainz.token
         }
     }
 
     @ObservedObject private var sponsorBlock = SponsorBlockStore.shared
+    @ObservedObject private var listenBrainz = ListenBrainzStore.shared
+    @Environment(\.openWindow) private var openWindow
+
+    @State private var draftLBToken: String = ""
+    @State private var lbStatus: String? = nil
+    @State private var lbBusy = false
+
+    private var listenBrainzSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ListenBrainz scrobbling")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Optional. Music tracks scrobble at half-track (or 4 minutes) using your personal token from listenbrainz.org/settings — free, no app key.")
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.5))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                SecureField("ListenBrainz user token", text: $draftLBToken)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(6)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(4)
+                if lbBusy {
+                    ProgressView().controlSize(.small).scaleEffect(0.7)
+                } else if listenBrainz.isEnabled && draftLBToken == listenBrainz.token {
+                    Button("Clear") {
+                        listenBrainz.token = ""
+                        draftLBToken = ""
+                        lbStatus = nil
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10))
+                    .foregroundColor(.red.opacity(0.7))
+                } else {
+                    Button("Verify & Save") { verifyListenBrainz() }
+                        .font(.system(size: 10))
+                        .disabled(draftLBToken.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            if let status = lbStatus ?? listenBrainz.lastStatus {
+                Text(status)
+                    .font(.system(size: 9))
+                    .foregroundColor(status.hasPrefix("Scrobbling as") ? .green.opacity(0.8) : .orange.opacity(0.85))
+            }
+        }
+    }
+
+    private func verifyListenBrainz() {
+        let candidate = draftLBToken.trimmingCharacters(in: .whitespaces)
+        guard !candidate.isEmpty else { return }
+        lbBusy = true
+        lbStatus = nil
+        Task { @MainActor in
+            if let username = await listenBrainz.validate(candidate) {
+                listenBrainz.token = candidate
+                lbStatus = "Scrobbling as \(username)."
+            } else {
+                lbStatus = "Token rejected — copy it from listenbrainz.org/settings."
+            }
+            lbBusy = false
+        }
+    }
 
     private var sponsorBlockSection: some View {
         VStack(alignment: .leading, spacing: 6) {
