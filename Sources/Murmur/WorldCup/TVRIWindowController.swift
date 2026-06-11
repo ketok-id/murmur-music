@@ -58,6 +58,24 @@ final class TVRIWindow: NSObject {
         var streamURL: URL {
             URL(string: "https://ott-balancer.tvri.go.id/live/eds/\(publishPoint)/hls/\(publishPoint).m3u8")!
         }
+
+        /// Stream candidates in priority order — the player rotates through
+        /// them on error. Nasional prefers the dens.tv distribution feed:
+        /// during World Cup programming TVRI slates its own ott-balancer
+        /// renditions (station-logo card), while the dens feed carries the
+        /// actual broadcast (verified on air 2026-06-11; geo-fenced to
+        /// Indonesia, which is exactly our audience for it).
+        var candidateURLs: [URL] {
+            switch self {
+            case .nasional:
+                return [
+                    URL(string: "https://op-group1-swiftservesd-1.dens.tv/s/s11/index.m3u8")!,
+                    streamURL,
+                ]
+            case .sport, .world:
+                return [streamURL]
+            }
+        }
     }
 
     private static let kChannel = "youtube-audio-widget.worldcup.tvriChannel"
@@ -140,6 +158,7 @@ final class TVRIWindow: NSObject {
         popup.controlSize = .small
         popup.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         popup.selectItem(withTitle: quality)
+        popup.sizeToFit()   // zero-frame accessory views render invisible
         let qualityAccessory = NSTitlebarAccessoryViewController()
         qualityAccessory.view = popup
         qualityAccessory.layoutAttribute = .trailing
@@ -171,23 +190,28 @@ final class TVRIWindow: NSObject {
     private func loadStream() {
         window?.title = "TVRI \(channel.label) — Live"
         let web = ensureWebView()
-        let master = channel.streamURL
+        let loading = channel
         let pinnedHeight = Int(quality.dropLast(quality.hasSuffix("p") ? 1 : 0))
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Pin to one rendition by resolving the master ladder fresh each
-            // load (the variant URLs carry per-session tokens, so they can't
-            // be hardcoded). Falls back to the master (auto ABR) on failure.
-            var stream = master
-            if let pinnedHeight,
-               let variant = await Self.variantURL(master: master, height: pinnedHeight) {
-                stream = variant
+            // Resolve the source list. The quality pin applies to TVRI's own
+            // ott master (its ladder carries per-session variant tokens, so
+            // resolve fresh each load); other feeds (dens.tv) play as-is —
+            // their ABR isn't slated.
+            var sources: [URL] = []
+            for candidate in loading.candidateURLs {
+                if candidate == loading.streamURL, let pinnedHeight,
+                   let variant = await Self.variantURL(master: candidate, height: pinnedHeight) {
+                    sources.append(variant)
+                } else {
+                    sources.append(candidate)
+                }
             }
             // Re-check the user didn't switch channels mid-resolve.
-            guard self.channel.streamURL == master else { return }
+            guard self.channel == loading else { return }
             web.loadHTMLString(
-                Self.playerHTML(stream: stream),
+                Self.playerHTML(sources: sources),
                 baseURL: URL(string: "https://ott-balancer.tvri.go.id")
             )
             // WebKit refuses the page's own un-gestured play() — even muted —
@@ -241,39 +265,43 @@ final class TVRIWindow: NSObject {
     }
 
     /// Minimal native-HLS page: a full-bleed `<video>` with system controls
-    /// (which include volume and Picture-in-Picture on macOS) and a plain
-    /// off-air message if the publish point errors.
-    private static func playerHTML(stream: URL) -> String {
-        """
+    /// (which include volume and Picture-in-Picture on macOS), rotating
+    /// through the candidate feeds on error, and a click-to-retry message
+    /// once every candidate has failed a few rounds.
+    private static func playerHTML(sources: [URL]) -> String {
+        let list = sources.map { "\"\($0.absoluteString)\"" }.joined(separator: ", ")
+        return """
         <!doctype html><html><head><meta charset="utf-8"><style>
           html,body{margin:0;height:100%;background:#0d0d12;overflow:hidden}
           video{width:100%;height:100%;object-fit:contain;background:#000}
           #err{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
                color:#9a9aa2;font:13px -apple-system,sans-serif;text-align:center;padding:0 32px;line-height:1.5;cursor:pointer}
         </style></head><body>
-        <video id="v" src="\(stream.absoluteString)" autoplay playsinline controls></video>
+        <video id="v" autoplay playsinline controls></video>
         <div id="err">TVRI’s stream isn’t answering right now.<br>
         The channel may be off-air — click here to retry, or pick another channel from the titlebar.</div>
         <script>
           const v = document.getElementById('v');
           const err = document.getElementById('err');
-          // Transient manifest/segment failures are common on live origins —
-          // retry with backoff before declaring the channel off-air, and let
-          // a click on the overlay try again (click = user activation, so
-          // that play() is never policy-blocked).
-          let retries = 0;
+          const sources = [\(list)];
+          // Rotate to the next feed on error (transient failures and dead
+          // feeds alike), with backoff; the overlay click retries from the
+          // top (click = user activation, so that play() is never blocked).
+          let si = 0, retries = 0;
           const reload = () => {
             err.style.display = 'none';
             v.style.display = '';
+            v.src = sources[si % sources.length];
             v.load();
             v.play().catch(() => {});
           };
           v.addEventListener('error', () => {
-            if (retries < 4) { retries += 1; setTimeout(reload, 4000); }
+            si += 1;
+            if (retries < 6) { retries += 1; setTimeout(reload, 3000); }
             else { v.style.display = 'none'; err.style.display = 'flex'; }
           });
-          err.addEventListener('click', () => { retries = 0; reload(); });
-          v.play().catch(() => {});
+          err.addEventListener('click', () => { retries = 0; si = 0; reload(); });
+          reload();
         </script>
         </body></html>
         """
