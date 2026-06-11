@@ -10,7 +10,9 @@ import SwiftUI
 ///             per-match detail (events / stats / lineups), live audio
 ///             sources, per-match stream resolution, follow context menus.
 ///   Groups  — all 12 group tables, star-to-follow teams.
-///   News    — ESPN World Cup headlines.
+///   News    — multi-source feed: ESPN headlines, official YouTube channels
+///             (play in-app), official TikTok accounts (floating embed
+///             window), and followed-team press via Google News.
 ///   Bracket — knockout fixtures by round (empty until the draw exists).
 ///
 /// The bell popover configures the live machinery (`WorldCupAlertSettings`):
@@ -36,6 +38,13 @@ struct WorldCupSheet: View {
         case followed = "★"
     }
 
+    enum NewsFilter: String, CaseIterable {
+        case all = "All"
+        case articles = "News"
+        case video = "Video"
+        case tiktok = "TikTok"
+    }
+
     @State private var selectedTab: Tab
     @State private var hideFinished = false
     @State private var scope: MatchScope = .all
@@ -47,6 +56,11 @@ struct WorldCupSheet: View {
     @State private var showAddSource = false
     @State private var newSourceName = ""
     @State private var newSourceURL = ""
+    @State private var newsFilter: NewsFilter = .all
+    @State private var showAddNewsSource = false
+    @State private var newNewsSourceInput = ""
+    @State private var newsSourceBusy = false
+    @State private var newsSourceError: String? = nil
 
     init() {
         // Verification/debug affordance: MURMUR_WC_TAB=news (etc.) preselects
@@ -793,32 +807,171 @@ struct WorldCupSheet: View {
     // MARK: News tab
 
     @ObservedObject private var news = WorldCupNewsStore.shared
+    @ObservedObject private var newsSources = WorldCupNewsSourcesStore.shared
 
-    @ViewBuilder
+    private var filteredNews: [WorldCupNewsItem] {
+        switch newsFilter {
+        case .all:      return news.items
+        case .articles: return news.items.filter { $0.kind == .article }
+        case .video:    return news.items.filter { $0.kind == .video }
+        case .tiktok:   return news.items.filter { $0.kind == .tiktok }
+        }
+    }
+
     private var newsTab: some View {
-        if news.articles.isEmpty {
-            if news.isLoading {
-                VStack { Spacer(); ProgressView(); Spacer() }
-                    .onAppear { news.refresh() }
-            } else {
-                EmptyStateView(
-                    systemImage: "newspaper",
-                    title: news.errorText ?? "No headlines yet.",
-                    helper: "ESPN's World Cup feed refreshes throughout the day."
-                )
-                .onAppear { news.refresh() }
-            }
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(news.articles) { article in
-                        NewsRow(article: article)
-                    }
+        VStack(spacing: 0) {
+            newsFilterRow
+            Divider().background(MurmurColor.border.opacity(0.6))
+            if news.items.isEmpty {
+                if news.isLoading {
+                    VStack { Spacer(); ProgressView(); Spacer() }
+                } else {
+                    EmptyStateView(
+                        systemImage: "newspaper",
+                        title: news.errorText ?? "No headlines yet.",
+                        helper: "ESPN, FIFA's channels and official TikTok feeds refresh throughout the day."
+                    )
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+            } else if filteredNews.isEmpty {
+                EmptyStateView(
+                    systemImage: newsFilter == .tiktok ? "music.note" : "newspaper",
+                    title: "Nothing from this source yet.",
+                    helper: "Try another filter, or add official feeds via the + button above."
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(filteredNews) { item in
+                            NewsRow(item: item) { open(newsItem: item) }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                }
             }
-            .onAppear { news.refresh() }
+        }
+        .onAppear { news.refresh() }
+    }
+
+    /// Kind chips (All / News / Video / TikTok) + the add-official-feed button.
+    private var newsFilterRow: some View {
+        HStack(spacing: 6) {
+            ForEach(NewsFilter.allCases, id: \.self) { f in
+                Button { newsFilter = f } label: {
+                    Text(f.rawValue)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(newsFilter == f ? MurmurColor.textPrimary : MurmurColor.textMuted)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(newsFilter == f ? MurmurColor.accent.opacity(0.25)
+                                                           : Color.white.opacity(0.04))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+            Button { showAddNewsSource.toggle() } label: {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MurmurColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .help("Add an official feed — a TikTok @handle or a YouTube channel")
+            .popover(isPresented: $showAddNewsSource, arrowEdge: .bottom) { addNewsSourcePopover }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
+    private var addNewsSourcePopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("OFFICIAL FEEDS")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(1.4)
+                .foregroundStyle(.secondary)
+            Text("Built in: ESPN · FIFA (YouTube) · @fifaworldcup (TikTok)")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            ForEach(newsSources.items) { source in
+                HStack(spacing: 6) {
+                    Image(systemName: source.kind == .tiktok ? "music.note" : "play.rectangle")
+                        .font(.system(size: 9))
+                        .foregroundStyle(MurmurColor.textMuted)
+                    Text(source.name)
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        newsSources.remove(id: source.id)
+                        news.refresh(force: true)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(MurmurColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove \(source.name)")
+                }
+            }
+            TextField("TikTok @handle or YouTube channel URL", text: $newNewsSourceInput)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .onSubmit { addNewsSource() }
+            if let newsSourceError {
+                Text(newsSourceError)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Text("Feeds merge into the news list — videos play in Murmur.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if newsSourceBusy {
+                    ProgressView().controlSize(.small).scaleEffect(0.7)
+                } else {
+                    Button("Add") { addNewsSource() }
+                        .disabled(newNewsSourceInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 320)
+    }
+
+    private func addNewsSource() {
+        let input = newNewsSourceInput
+        guard !input.trimmingCharacters(in: .whitespaces).isEmpty, !newsSourceBusy else { return }
+        newsSourceBusy = true
+        newsSourceError = nil
+        Task { @MainActor in
+            if let error = await newsSources.add(input: input) {
+                newsSourceError = error
+            } else {
+                newNewsSourceInput = ""
+                showAddNewsSource = false
+                news.refresh(force: true)
+            }
+            newsSourceBusy = false
+        }
+    }
+
+    /// Routing per kind: YouTube videos play in Murmur's player, TikTok posts
+    /// open the floating embed window, articles go to the browser.
+    private func open(newsItem item: WorldCupNewsItem) {
+        switch item.kind {
+        case .video:
+            if let id = item.videoID { _ = controller.load(input: id) }
+        case .tiktok:
+            if let id = item.tiktokID {
+                TikTokWindow.shared.show(videoID: id, title: "\(item.source) — TikTok")
+            } else if let link = item.link {
+                NSWorkspace.shared.open(link)
+            }
+        case .article:
+            if let link = item.link { NSWorkspace.shared.open(link) }
         }
     }
 
@@ -889,7 +1042,7 @@ struct WorldCupSheet: View {
         case .scorers:
             thinFooter("Golden Boot race · tallied from finished matches")
         case .news:
-            thinFooter("Headlines from ESPN's World Cup feed")
+            thinFooter("ESPN · FIFA video · official TikTok — videos play in Murmur")
         case .bracket:
             thinFooter("Round of 32 → Final · all times local")
         }
@@ -1424,39 +1577,34 @@ private struct GroupTable: View {
 // MARK: - News row
 
 private struct NewsRow: View {
-    let article: WorldCupArticle
+    let item: WorldCupNewsItem
+    let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        Button {
-            if let link = article.link { NSWorkspace.shared.open(link) }
-        } label: {
+        Button(action: action) {
             HStack(spacing: 10) {
-                AsyncImage(url: article.imageURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Rectangle().fill(Color.white.opacity(0.06))
-                        .overlay(Image(systemName: "newspaper")
-                            .font(.system(size: 12))
-                            .foregroundStyle(MurmurColor.textMuted))
-                }
-                .frame(width: 72, height: 42)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
+                thumbnail
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(article.headline)
+                    Text(item.headline)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(hovering ? MurmurColor.textPrimary : MurmurColor.textSecondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    if let published = article.published {
-                        Text(Self.relative.localizedString(for: published, relativeTo: Date()))
+                    HStack(spacing: 4) {
+                        if let icon = kindIcon {
+                            Image(systemName: icon)
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(MurmurColor.accent.opacity(0.85))
+                        }
+                        Text(metaLine)
                             .font(.system(size: 9))
                             .foregroundStyle(MurmurColor.textMuted)
+                            .lineLimit(1)
                     }
                 }
                 Spacer()
-                Image(systemName: "arrow.up.right")
+                Image(systemName: item.kind == .article ? "arrow.up.right" : "play.fill")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(MurmurColor.textMuted.opacity(hovering ? 1 : 0.4))
             }
@@ -1473,7 +1621,62 @@ private struct NewsRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("Open on espn.com")
+        .help(helpText)
+    }
+
+    /// 16:9 thumb; video kinds get a small play puck (TikTok portrait covers
+    /// center-crop into the same frame so the list stays uniform).
+    private var thumbnail: some View {
+        ZStack {
+            AsyncImage(url: item.imageURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Rectangle().fill(Color.white.opacity(0.06))
+                    .overlay(Image(systemName: placeholderIcon)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MurmurColor.textMuted))
+            }
+            if item.kind != .article {
+                Circle().fill(Color.black.opacity(0.55)).frame(width: 18, height: 18)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.95))
+            }
+        }
+        .frame(width: 72, height: 42)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    private var kindIcon: String? {
+        switch item.kind {
+        case .article: return nil
+        case .video:   return "play.rectangle.fill"
+        case .tiktok:  return "music.note"
+        }
+    }
+
+    private var placeholderIcon: String {
+        switch item.kind {
+        case .article: return "newspaper"
+        case .video:   return "play.rectangle"
+        case .tiktok:  return "music.note"
+        }
+    }
+
+    private var metaLine: String {
+        var parts = [item.source]
+        if let published = item.published {
+            parts.append(Self.relative.localizedString(for: published, relativeTo: Date()))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var helpText: String {
+        switch item.kind {
+        case .article: return "Open in your browser"
+        case .video:   return "Play in Murmur"
+        case .tiktok:  return "Play in a floating TikTok window"
+        }
     }
 
     private static let relative: RelativeDateTimeFormatter = {
