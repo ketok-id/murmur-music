@@ -26,10 +26,13 @@ enum MurmurColor {
     static let textSecondary = Color.murmurHex("#A39A91")
     static let textMuted     = Color.murmurHex("#6F6A65")
 
-    static let accent        = Color.murmurHex("#FF9F6E")
-    static let accentLight   = Color.murmurHex("#FFC19C")
+    // Accent tokens resolve through ThemeStore (Settings → accent picker).
+    // Views that must re-render on a live theme change observe the store;
+    // everything else picks the new value up on its next render.
+    static var accent: Color      { ThemeStore.shared.accentColor }
+    static var accentLight: Color { ThemeStore.shared.accentLightColor }
+    static var glow: Color        { ThemeStore.shared.glowColor }
     static let copper        = Color.murmurHex("#C9784D")
-    static let glow          = Color.murmurHex("#FF9F6E").opacity(0.35)
 }
 
 extension Color {
@@ -63,6 +66,9 @@ struct ContentView: View {
     @State private var urlInput: String = ""
     @ObservedObject private var apiKeyStore = APIKeyStore.shared
     @ObservedObject private var updateChecker = UpdateChecker.shared
+    // Observed so an accent change in Settings re-renders the panel live.
+    @ObservedObject private var theme = ThemeStore.shared
+    @AppStorage("youtube-audio-widget.didTour.v1") private var didTour = false
 
     /// Opens the Window-scene sheets (queue, playlist, search, settings,
     /// my-playlists). Replaces the prior `.sheet(isPresented:)` bindings
@@ -159,6 +165,11 @@ struct ContentView: View {
                 )
             }
             .padding(14)
+
+            // One-time first-launch tour; the flag flips on Skip/finish.
+            if !didTour {
+                TourOverlay { didTour = true }
+            }
         }
         .frame(width: 500, height: 370)
         // No `.sheet(isPresented:)` modifiers — every former sheet is now
@@ -1053,6 +1064,7 @@ struct NativeShareMenuButton: NSViewRepresentable {
             menu.addItem(.separator())
             menu.addItem(item("Copy YouTube link",       "link",                  #selector(copyYouTube(_:))))
             menu.addItem(item("Copy Murmur link",        "music.note.list",       #selector(copyMurmur(_:))))
+            menu.addItem(item("Copy web link",           "globe",                 #selector(copyWeb(_:))))
             menu.addItem(item("Copy title",              "text.cursor",           #selector(copyTitle(_:))))
             menu.addItem(.separator())
             menu.addItem(item("Copy title + YouTube link", "doc.on.clipboard",    #selector(copyTitleAndYouTube(_:))))
@@ -1069,16 +1081,29 @@ struct NativeShareMenuButton: NSViewRepresentable {
             return i
         }
 
+        /// murmur.ketok.id/v/<id> — an OG-card landing page that deep-links
+        /// into the app (murmur://) and offers the download to everyone else.
+        private var webLink: URL {
+            let comp = URLComponents(url: murmurLink, resolvingAgainstBaseURL: false)
+            let videoID = comp?.queryItems?.first { $0.name == "v" }?.value ?? ""
+            var out = URLComponents(string: "https://murmur.ketok.id/v/\(videoID)")
+            if let list = comp?.queryItems?.first(where: { $0.name == "list" })?.value, !list.isEmpty {
+                out?.queryItems = [URLQueryItem(name: "list", value: list)]
+            }
+            return out?.url ?? URL(string: "https://murmur.ketok.id")!
+        }
+
         @objc private func shareYouTube(_ s: Any) { share([shareURL as NSURL]) }
         @objc private func shareMurmur(_ s: Any)  { share([murmurLink as NSURL]) }
         @objc private func copyYouTube(_ s: Any)  { copy(shareURL.absoluteString) }
         @objc private func copyMurmur(_ s: Any)   { copy(murmurLink.absoluteString) }
+        @objc private func copyWeb(_ s: Any)      { copy(webLink.absoluteString) }
         @objc private func copyTitle(_ s: Any)    { copy(shareTitle) }
         @objc private func copyTitleAndYouTube(_ s: Any) {
             copy("\(shareTitle)\n\(shareURL.absoluteString)")
         }
         @objc private func copyRichCard(_ s: Any) {
-            copy("♪ \(shareTitle)\n\(shareURL.absoluteString)\nOpen in Murmur: \(murmurLink.absoluteString)")
+            copy("♪ \(shareTitle)\n\(shareURL.absoluteString)\nOpen in Murmur: \(webLink.absoluteString)")
         }
 
         private func share(_ items: [Any]) {

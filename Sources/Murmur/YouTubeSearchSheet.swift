@@ -21,7 +21,7 @@ struct YouTubeSearchSheet: View {
     @FocusState private var searchFocused: Bool
 
     enum Mode: String, CaseIterable, Identifiable {
-        case videos, trending, channels, radio
+        case videos, trending, channels, radio, tv
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -29,6 +29,7 @@ struct YouTubeSearchSheet: View {
             case .trending: return "Trending"
             case .channels: return "Channels"
             case .radio: return "Radio"
+            case .tv: return "TV"
             }
         }
     }
@@ -49,10 +50,7 @@ struct YouTubeSearchSheet: View {
 
                 if mode != .trending {
                     PopoverSearchField(
-                        placeholder: mode == .videos
-                            ? "e.g. lofi study, synthwave radio, ocean waves…"
-                            : (mode == .radio ? "Station name (e.g. smooth jazz, Prambors)…"
-                                              : "Channel name (e.g. lofi girl)"),
+                        placeholder: searchPlaceholder,
                         text: $draftQuery,
                         onSearch: activate,
                         canSearch: canSearch
@@ -146,7 +144,20 @@ struct YouTubeSearchSheet: View {
                 // Browse + search live in one view (empty query = chips).
                 RadioBrowseView(query: activeQuery)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .tv:
+                // Country browser; the search field filters client-side.
+                TVBrowseView(query: draftQuery)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    private var searchPlaceholder: String {
+        switch mode {
+        case .videos:   return "e.g. lofi study, synthwave radio, ocean waves…"
+        case .radio:    return "Station name (e.g. smooth jazz, Prambors)…"
+        case .tv:       return "Filter channels (e.g. sport, news, RCTI)…"
+        default:        return "Channel name (e.g. lofi girl)"
         }
     }
 
@@ -390,8 +401,8 @@ struct YouTubeSearchSheet: View {
         guard canSearch else { return }
         let trimmed = draftQuery.trimmingCharacters(in: .whitespaces)
         activeQuery = trimmed
-        // Radio searches stay out of the (videos/channels) history store.
-        guard mode != .radio else { return }
+        // Only video/channel searches belong in the history store.
+        guard mode == .videos || mode == .channels else { return }
         SearchHistoryStore.shared.record(
             query: trimmed,
             mode: mode == .videos ? .videos : .channels

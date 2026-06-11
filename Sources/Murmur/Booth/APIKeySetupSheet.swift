@@ -39,6 +39,10 @@ struct APIKeySetupSheet: View {
                 Divider().background(Color.white.opacity(0.1))
             }
 
+            accentSection
+
+            Divider().background(Color.white.opacity(0.1))
+
             sponsorBlockSection
 
             Divider().background(Color.white.opacity(0.1))
@@ -127,6 +131,40 @@ struct APIKeySetupSheet: View {
     }
 
     @ObservedObject private var sponsorBlock = SponsorBlockStore.shared
+    @ObservedObject private var theme = ThemeStore.shared
+
+    private var accentSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ACCENT")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .tracking(1.5)
+                .foregroundColor(.white.opacity(0.4))
+            HStack(spacing: 10) {
+                ForEach(ThemeStore.accents) { accent in
+                    Button { theme.select(accent) } label: {
+                        Circle()
+                            .fill(Color.murmurHex(accent.base))
+                            .frame(width: 18, height: 18)
+                            .overlay(
+                                Circle().stroke(
+                                    theme.accent == accent ? Color.white.opacity(0.9) : Color.white.opacity(0.12),
+                                    lineWidth: theme.accent == accent ? 2 : 1
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help(accent.name)
+                }
+                Spacer()
+                Text(theme.accent.name)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+            Text("Applies to the main panel immediately; other windows pick it up when reopened.")
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.4))
+        }
+    }
     @ObservedObject private var listenBrainz = ListenBrainzStore.shared
     @Environment(\.openWindow) private var openWindow
 
