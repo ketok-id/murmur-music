@@ -149,7 +149,7 @@ final class TVRIWindow: NSObject {
         // bridge's ytCmd calls work). Kick playback a few times while the
         // stream buffers; each kick is a no-op once playing, and the last
         // one fires well before a human could reach the pause button.
-        for delay in [0.8, 2.0, 4.0, 7.0] {
+        for delay in [0.8, 2.0, 4.0, 7.0, 12.0, 18.0, 25.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.kickPlayback()
             }
@@ -172,20 +172,30 @@ final class TVRIWindow: NSObject {
           html,body{margin:0;height:100%;background:#0d0d12;overflow:hidden}
           video{width:100%;height:100%;object-fit:contain;background:#000}
           #err{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
-               color:#9a9aa2;font:13px -apple-system,sans-serif;text-align:center;padding:0 32px;line-height:1.5}
+               color:#9a9aa2;font:13px -apple-system,sans-serif;text-align:center;padding:0 32px;line-height:1.5;cursor:pointer}
         </style></head><body>
         <video id="v" src="\(stream.absoluteString)" autoplay playsinline controls></video>
-        <div id="err">TVRI's stream isn't answering right now.<br>
-        The channel may be off-air — try another channel from the titlebar.</div>
+        <div id="err">TVRI’s stream isn’t answering right now.<br>
+        The channel may be off-air — click here to retry, or pick another channel from the titlebar.</div>
         <script>
           const v = document.getElementById('v');
+          const err = document.getElementById('err');
+          // Transient manifest/segment failures are common on live origins —
+          // retry with backoff before declaring the channel off-air, and let
+          // a click on the overlay try again (click = user activation, so
+          // that play() is never policy-blocked).
+          let retries = 0;
+          const reload = () => {
+            err.style.display = 'none';
+            v.style.display = '';
+            v.load();
+            v.play().catch(() => {});
+          };
           v.addEventListener('error', () => {
-            v.style.display = 'none';
-            document.getElementById('err').style.display = 'flex';
+            if (retries < 4) { retries += 1; setTimeout(reload, 4000); }
+            else { v.style.display = 'none'; err.style.display = 'flex'; }
           });
-          // Best-effort only — WebKit policy-blocks this for loadHTMLString
-          // pages; the Swift side kicks playback via evaluateJavaScript,
-          // which carries user-activation privileges.
+          err.addEventListener('click', () => { retries = 0; reload(); });
           v.play().catch(() => {});
         </script>
         </body></html>

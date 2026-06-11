@@ -24,7 +24,7 @@ final class LiveTVWindow: NSObject, ObservableObject {
             Self.playerHTML(stream: channel.streamURL),
             baseURL: channel.streamURL
         )
-        for delay in [0.8, 2.0, 4.0, 7.0] {
+        for delay in [0.8, 2.0, 4.0, 7.0, 12.0, 18.0, 25.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.kickPlayback()
             }
@@ -46,17 +46,30 @@ final class LiveTVWindow: NSObject, ObservableObject {
           html,body{margin:0;height:100%;background:#0d0d12;overflow:hidden}
           video{width:100%;height:100%;object-fit:contain;background:#000}
           #err{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
-               color:#9a9aa2;font:13px -apple-system,sans-serif;text-align:center;padding:0 32px;line-height:1.5}
+               color:#9a9aa2;font:13px -apple-system,sans-serif;text-align:center;padding:0 32px;line-height:1.5;cursor:pointer}
         </style></head><body>
         <video id="v" src="\(stream.absoluteString)" autoplay playsinline controls></video>
-        <div id="err">This channel isn't answering right now.<br>
-        Community-indexed streams come and go — try another channel.</div>
+        <div id="err">This channel isn’t answering right now.<br>
+        Community-indexed streams come and go — click here to retry, or try another channel.</div>
         <script>
           const v = document.getElementById('v');
+          const err = document.getElementById('err');
+          // Transient manifest/segment failures are common on live origins —
+          // retry with backoff before declaring the channel off-air, and let
+          // a click on the overlay try again (click = user activation, so
+          // that play() is never policy-blocked).
+          let retries = 0;
+          const reload = () => {
+            err.style.display = 'none';
+            v.style.display = '';
+            v.load();
+            v.play().catch(() => {});
+          };
           v.addEventListener('error', () => {
-            v.style.display = 'none';
-            document.getElementById('err').style.display = 'flex';
+            if (retries < 4) { retries += 1; setTimeout(reload, 4000); }
+            else { v.style.display = 'none'; err.style.display = 'flex'; }
           });
+          err.addEventListener('click', () => { retries = 0; reload(); });
           v.play().catch(() => {});
         </script>
         </body></html>
